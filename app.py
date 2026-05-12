@@ -1,310 +1,409 @@
+"""
+AgentOS Pro v4.0 — Multi-Provider AI Agent Platform
+Features: Retry/fallback engine · Health monitoring · Token budget · Agent presets ·
+          Quick-run templates · Keyboard shortcuts · Circuit breaker · Live streaming
+          indicators · Provider auto-failover · Conversation export · Prompt history
+"""
+
 import streamlit as st
 import anthropic
 import json
 import time
-import traceback
+import random
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
+from collections import defaultdict
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PAGE CONFIG
+# PAGE CONFIG — must be first
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="AgentOS Pro",
-    page_icon="🤖",
+    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CSS
+# GLOBAL CSS
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-[data-testid="stAppViewContainer"] { background: #06060f; }
-[data-testid="stSidebar"]          { background: #09091a !important; border-right: 1px solid #1a1a30; }
-[data-testid="stSidebar"] *        { color: #b0b0d0; }
-.block-container                   { padding: 1.5rem 2rem 2rem !important; max-width: 1300px; }
+/* ── Base ── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, [data-testid="stAppViewContainer"] {
+    background: #05050e !important;
+    font-family: 'Inter', -apple-system, sans-serif !important;
+}
+[data-testid="stSidebar"] {
+    background: #08081a !important;
+    border-right: 1px solid #12122a !important;
+}
+[data-testid="stSidebar"] * { color: #9090b8; }
+.block-container { padding: 1.2rem 1.8rem 2rem !important; max-width: 1400px; }
 #MainMenu, footer, header { visibility: hidden; }
 
+/* ── Sidebar nav ── */
 [data-testid="stSidebar"] .stRadio > label { display: none; }
-[data-testid="stSidebar"] .stRadio > div   { gap: 3px !important; display: flex; flex-direction: column; }
+[data-testid="stSidebar"] .stRadio > div   { gap: 2px !important; display: flex; flex-direction: column; }
 [data-testid="stSidebar"] .stRadio div[role="radio"] {
     background: transparent !important; border: 1px solid transparent !important;
-    border-radius: 10px !important; padding: 9px 14px !important;
-    cursor: pointer; transition: all .15s ease;
-    color: #8080aa !important; font-size: 13px !important; font-weight: 500 !important;
+    border-radius: 9px !important; padding: 8px 12px !important; cursor: pointer;
+    transition: all .12s ease; color: #6060a0 !important; font-size: 13px !important;
+    font-weight: 500 !important; display: flex; align-items: center;
 }
 [data-testid="stSidebar"] .stRadio div[role="radio"]:hover {
-    background: #14142a !important; border-color: #222244 !important; color: #d0d0f0 !important;
+    background: #111128 !important; border-color: #1e1e3c !important; color: #c0c0e8 !important;
 }
 [data-testid="stSidebar"] .stRadio div[aria-checked="true"] {
-    background: linear-gradient(135deg,#1c1c40,#28184a) !important;
-    border-color: #5555cc !important; color: #e0e0ff !important;
-    box-shadow: 0 0 12px rgba(85,85,204,.2);
+    background: linear-gradient(135deg,#181840,#221850) !important;
+    border-color: #4444cc !important; color: #e8e8ff !important;
+    box-shadow: 0 0 14px rgba(68,68,204,.18);
 }
 [data-testid="stSidebar"] .stRadio div[role="radio"] p { margin: 0; font-size: 13px; }
 [data-testid="stSidebar"] .stRadio span[data-baseweb] { display: none !important; }
 
-.card { background: linear-gradient(135deg,#0d0d22,#141428); border: 1px solid #1e1e38;
-        border-radius: 14px; padding: 18px 20px; margin-bottom: 12px; }
-.card:hover { border-color: #5555cc; }
+/* ── Cards ── */
+.card {
+    background: linear-gradient(145deg,#0b0b1e,#101028);
+    border: 1px solid #181838; border-radius: 14px;
+    padding: 16px 18px; margin-bottom: 10px;
+    transition: border-color .15s, box-shadow .15s;
+}
+.card:hover { border-color: #3333aa; box-shadow: 0 4px 24px rgba(68,68,180,.08); }
+.card-active { border-color: #4444cc !important; box-shadow: 0 0 20px rgba(68,68,204,.15) !important; }
 
-.pill { display:inline-block; padding:2px 10px; border-radius:99px; font-size:10px; font-weight:700; letter-spacing:.4px; }
-.pill-green  { background:#082014; color:#2ecc71; border:1px solid #1a5030; }
-.pill-yellow { background:#221d08; color:#f0a500; border:1px solid #503c10; }
-.pill-blue   { background:#081422; color:#3db4ff; border:1px solid #104050; }
-.pill-purple { background:#140a28; color:#b06aff; border:1px solid #3a1a60; }
-.pill-red    { background:#200808; color:#ff5252; border:1px solid #502020; }
+/* ── Pills / badges ── */
+.pill { display:inline-flex; align-items:center; gap:4px; padding:2px 9px;
+        border-radius:99px; font-size:10px; font-weight:700; letter-spacing:.3px; }
+.pill-green  { background:#071a10; color:#26c96e; border:1px solid #144028; }
+.pill-yellow { background:#1e1808; color:#f0a020; border:1px solid #483808; }
+.pill-blue   { background:#071420; color:#38aaee; border:1px solid #0e3858; }
+.pill-purple { background:#120828; color:#a060ff; border:1px solid #301870; }
+.pill-red    { background:#180606; color:#ff4444; border:1px solid #481414; }
+.pill-gray   { background:#0e0e20; color:#505080; border:1px solid #1c1c38; }
 
-.bubble-u { background: linear-gradient(135deg,#3a3aaa,#5a3aaa); color:#fff;
-    border-radius:16px 16px 4px 16px; padding:10px 16px; margin:7px 0 7px 60px;
-    font-size:13px; line-height:1.65; }
-.bubble-a { background:#111126; border:1px solid #1e1e3a; color:#c8c8e8;
-    border-radius:16px 16px 16px 4px; padding:10px 16px; margin:7px 60px 7px 0;
-    font-size:13px; line-height:1.65; }
-.bubble-t { background:#081a10; border:1px solid #1a4020; color:#2ecc71;
-    border-radius:8px; padding:6px 12px; margin:3px 60px 3px 0;
-    font-size:11px; font-family:monospace; }
+/* ── Status dot ── */
+.dot { width:7px; height:7px; border-radius:50%; display:inline-block; margin-right:5px; }
+.dot-green  { background:#26c96e; box-shadow: 0 0 6px #26c96e88; }
+.dot-yellow { background:#f0a020; box-shadow: 0 0 6px #f0a02088; }
+.dot-red    { background:#ff4444; box-shadow: 0 0 6px #ff444488; }
+.dot-gray   { background:#404060; }
 
-.kpi { background:linear-gradient(135deg,#0d0d22,#141428); border:1px solid #1e1e38;
-       border-radius:14px; padding:16px; text-align:center; }
-.kpi-num { font-size:32px; font-weight:800; }
-.kpi-lbl { font-size:10px; color:#404060; margin-top:4px; letter-spacing:.5px; text-transform:uppercase; }
+/* ── KPI ── */
+.kpi { background:linear-gradient(145deg,#0b0b1e,#101028); border:1px solid #181838;
+       border-radius:12px; padding:14px 16px; text-align:center; }
+.kpi-num { font-size:28px; font-weight:800; font-family:'Inter',sans-serif; }
+.kpi-lbl { font-size:9px; color:#30305a; margin-top:3px; letter-spacing:.8px; text-transform:uppercase; }
+.kpi-sub { font-size:10px; color:#404070; margin-top:2px; }
 
-.stitle { font-size:10px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase;
-          color:#5555cc; margin:20px 0 7px; }
+/* ── Section title ── */
+.stitle { font-size:9px; font-weight:800; letter-spacing:2px; text-transform:uppercase;
+          color:#4444bb; margin:18px 0 6px; display:flex; align-items:center; gap:6px; }
 
-/* Terminal / Command Center */
+/* ── Chat bubbles ── */
+.bubble-u { background: linear-gradient(135deg,#32329a,#52309a); color:#fff;
+    border-radius:14px 14px 3px 14px; padding:9px 14px; margin:6px 0 6px 50px;
+    font-size:13px; line-height:1.7; }
+.bubble-a { background:#0e0e24; border:1px solid #181840; color:#c0c0e0;
+    border-radius:14px 14px 14px 3px; padding:9px 14px; margin:6px 50px 6px 0;
+    font-size:13px; line-height:1.7; }
+.bubble-tool { background:#060e0a; border:1px solid #0e3020; color:#20b060;
+    border-radius:6px; padding:5px 10px; margin:3px 50px 3px 0;
+    font-size:11px; font-family:'JetBrains Mono',monospace; }
+.bubble-retry { background:#0e0a06; border:1px solid #382808; color:#e08020;
+    border-radius:6px; padding:4px 10px; margin:3px 50px 3px 0;
+    font-size:11px; font-family:'JetBrains Mono',monospace; }
+.bubble-err { background:#0e0606; border:1px solid #381414; color:#ee4444;
+    border-radius:6px; padding:4px 10px; margin:3px 50px 3px 0;
+    font-size:11px; font-family:'JetBrains Mono',monospace; }
+
+/* ── Terminal ── */
 .terminal {
-    background: #020208; border: 1px solid #1a1a30; border-radius: 12px;
-    padding: 16px; font-family: 'Courier New', monospace; font-size: 12px;
-    line-height: 1.8; max-height: 500px; overflow-y: auto;
+    background: #020208; border: 1px solid #141428; border-radius: 10px;
+    padding: 14px 16px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px;
+    line-height: 1.85; max-height: 480px; overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: #2a2a4a transparent;
 }
-.cmd-line { color: #5555cc; }
-.cmd-success { color: #2ecc71; }
-.cmd-error { color: #ff5252; }
-.cmd-info { color: #f0a500; }
-.cmd-data { color: #3db4ff; }
-.cmd-time { color: #404060; font-size: 10px; }
+.terminal::-webkit-scrollbar { width: 5px; }
+.terminal::-webkit-scrollbar-thumb { background: #2a2a4a; border-radius: 3px; }
+.t-cmd     { color: #6666ee; }
+.t-ok      { color: #26c96e; }
+.t-err     { color: #ff4444; }
+.t-warn    { color: #f0a020; }
+.t-info    { color: #38aaee; }
+.t-retry   { color: #ff8844; }
+.t-circuit { color: #ff44aa; }
+.t-dim     { color: #282850; font-size: 10px; }
 
+/* ── Health bar ── */
+.health-bar { height: 4px; border-radius: 2px; background: #0e0e20; margin-top:5px; overflow:hidden; }
+.health-fill { height: 100%; border-radius: 2px; transition: width .4s; }
+
+/* ── Token budget bar ── */
+.budget-bar { height: 6px; border-radius: 3px; background: #0e0e20; overflow:hidden; width:100%; }
+.budget-fill { height: 100%; border-radius: 3px; transition: width .3s; }
+
+/* ── Inputs ── */
 input, textarea, [data-baseweb="select"] > div {
-    background: #0d0d22 !important; border-color: #1e1e38 !important;
-    color: #d8d8f0 !important; border-radius: 9px !important;
+    background: #0b0b20 !important; border-color: #181840 !important;
+    color: #d0d0f0 !important; border-radius: 8px !important;
+    font-family: 'Inter', sans-serif !important;
 }
-input:focus, textarea:focus { border-color: #5555cc !important; box-shadow: 0 0 0 2px rgba(85,85,204,.15) !important; }
+input:focus, textarea:focus {
+    border-color: #4444cc !important;
+    box-shadow: 0 0 0 2px rgba(68,68,204,.12) !important;
+}
 
+/* ── Buttons ── */
 .stButton > button {
-    background: linear-gradient(135deg,#3a3aaa,#5a3aaa) !important;
-    color:#fff !important; border:none !important; border-radius:9px !important;
-    font-weight:600 !important; padding:7px 16px !important;
+    background: linear-gradient(135deg,#3232a0,#5232a0) !important;
+    color:#fff !important; border:none !important; border-radius:8px !important;
+    font-weight:600 !important; font-size:13px !important; padding:6px 14px !important;
+    font-family:'Inter',sans-serif !important; transition: opacity .12s !important;
 }
-.stButton > button:hover { opacity:.85 !important; }
-button[kind="secondary"] { background:#0d0d22 !important; border:1px solid #1e1e38 !important; }
-
-.pnode { background:#0d0d22; border:1px solid #1e1e38; border-radius:10px;
-         padding:10px 14px; text-align:center; min-width:100px; display:inline-block; }
-.parrow { color:#5555cc; font-size:20px; display:inline-block; margin:0 5px; vertical-align:middle; }
-
-h1,h2,h3,h4 { color:#e0e0ff !important; }
-p { color:#8080a8; }
-hr { border-color:#14142a !important; }
-summary { color:#b0b0d0 !important; }
-
-.logo-wrap { text-align:center; padding:18px 0 24px; border-bottom:1px solid #14142a; margin-bottom:14px; }
-.logo-wrap .logo-icon { font-size:30px; }
-.logo-wrap .logo-name { font-size:16px; font-weight:700; color:#e0e0ff; margin-top:5px; }
-.logo-wrap .logo-sub  { font-size:9px; color:#5555cc; letter-spacing:1.5px; margin-top:2px; }
-
-/* Provider badge */
-.provider-badge {
-    display: inline-flex; align-items: center; gap: 5px;
-    padding: 3px 10px; border-radius: 99px; font-size: 10px; font-weight: 700;
-    letter-spacing: .3px;
+.stButton > button:hover { opacity:.82 !important; }
+button[kind="secondary"] {
+    background: #0b0b20 !important; border: 1px solid #181840 !important; color:#8080c0 !important;
 }
-.badge-anthropic { background:#1a0a28; color:#c07aff; border:1px solid #4a2080; }
-.badge-gemini    { background:#0a1820; color:#4db6ff; border:1px solid #1a5080; }
-.badge-groq      { background:#0a1a10; color:#2ecc71; border:1px solid #1a5030; }
-.badge-openai    { background:#0a180a; color:#74d680; border:1px solid #206028; }
-.badge-openrouter{ background:#1a180a; color:#f0c060; border:1px solid #604820; }
+button[kind="secondary"]:hover { border-color:#3333aa !important; color:#c0c0ff !important; }
+
+/* ── Pipeline node ── */
+.pnode { background:#0b0b1e; border:1px solid #181838; border-radius:9px;
+         padding:8px 12px; text-align:center; min-width:90px; display:inline-block;
+         transition: border-color .15s; }
+.pnode-run  { border-color:#f0a020 !important; box-shadow: 0 0 12px rgba(240,160,32,.2) !important; }
+.pnode-done { border-color:#26c96e !important; box-shadow: 0 0 12px rgba(38,201,110,.15) !important; }
+.pnode-err  { border-color:#ff4444 !important; box-shadow: 0 0 12px rgba(255,68,68,.15) !important; }
+.parrow { color:#3333aa; font-size:18px; display:inline-block; margin:0 4px; vertical-align:middle; }
+
+/* ── Provider badge ── */
+.pbadge { display:inline-flex; align-items:center; gap:4px; padding:2px 8px;
+          border-radius:99px; font-size:10px; font-weight:700; letter-spacing:.2px; }
+.pbadge-anthropic { background:#16082a; color:#c070ff; border:1px solid #481878; }
+.pbadge-gemini    { background:#071420; color:#38aaee; border:1px solid #0e3858; }
+.pbadge-groq      { background:#071808; color:#26c96e; border:1px solid #144028; }
+.pbadge-openrouter{ background:#181408; color:#f0c040; border:1px solid #504010; }
+
+/* ── Alert banner ── */
+.alert { border-radius:9px; padding:10px 14px; margin:8px 0; font-size:12px; }
+.alert-warn { background:#1a1206; border:1px solid #483010; color:#e09030; }
+.alert-err  { background:#160606; border:1px solid #401010; color:#ee4040; }
+.alert-ok   { background:#061210; border:1px solid #103c20; color:#26c96e; }
+.alert-info { background:#060e18; border:1px solid #0e3050; color:#38aaee; }
+
+/* ── Preset chip ── */
+.preset-chip { display:inline-block; background:#0e0e26; border:1px solid #1e1e44;
+               border-radius:99px; padding:4px 12px; font-size:11px; color:#6060aa;
+               cursor:pointer; transition:all .12s; margin:3px; }
+.preset-chip:hover { border-color:#4444cc; color:#a0a0ff; background:#14143a; }
+
+/* ── Shortcut key ── */
+.kbd { background:#0e0e20; border:1px solid #282848; border-radius:4px;
+       padding:1px 5px; font-size:10px; font-family:monospace; color:#6060a0; }
+
+/* ── Typography ── */
+h1,h2,h3,h4 { color:#e0e0ff !important; font-family:'Inter',sans-serif !important; font-weight:700 !important; }
+p { color:#7070a0; font-family:'Inter',sans-serif; }
+hr { border-color:#10102a !important; }
+summary { color:#a0a0c8 !important; }
+
+/* ── Logo ── */
+.logo-wrap { text-align:center; padding:16px 0 20px; border-bottom:1px solid #10102a; margin-bottom:12px; }
+.logo-icon { font-size:26px; }
+.logo-name { font-size:15px; font-weight:800; color:#e0e0ff; margin-top:4px; letter-spacing:-.3px; }
+.logo-sub  { font-size:8px; color:#4444bb; letter-spacing:2.5px; margin-top:2px; text-transform:uppercase; }
+
+/* ── Notification toast ── */
+.toast { position:fixed; bottom:20px; right:20px; background:#0e0e28;
+         border:1px solid #3333aa; border-radius:10px; padding:12px 16px;
+         font-size:13px; color:#d0d0f0; z-index:9999; animation: fadein .3s; }
+@keyframes fadein { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+
+/* ── Metric strip ── */
+.metric-strip { display:flex; gap:14px; flex-wrap:wrap; margin:8px 0 14px; }
+.metric-item { background:#0b0b1e; border:1px solid #141430; border-radius:8px;
+               padding:7px 12px; font-size:11px; color:#505080; min-width:100px; }
+.metric-item span { display:block; font-size:15px; font-weight:700; color:#a0a0cc; margin-bottom:1px; }
 </style>
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PROVIDER CONFIGS
+# PROVIDERS
 # ─────────────────────────────────────────────────────────────────────────────
 PROVIDERS = {
     "anthropic": {
-        "name": "Anthropic Claude",
-        "icon": "🟣",
-        "badge_class": "badge-anthropic",
-        "models": [
-            "claude-sonnet-4-20250514",
-            "claude-opus-4-20250514",
-            "claude-haiku-4-5-20251001",
-        ],
-        "free_tier": False,
-        "docs": "https://console.anthropic.com/",
-        "hint": "sk-ant-api03-…",
-        "key_field": "anthropic",
+        "name": "Claude (Anthropic)", "icon": "🟣", "badge": "pbadge-anthropic",
+        "models": ["claude-sonnet-4-20250514","claude-opus-4-20250514","claude-haiku-4-5-20251001"],
+        "free": False, "docs": "https://console.anthropic.com/", "hint": "sk-ant-api03-…",
     },
     "gemini": {
-        "name": "Google Gemini",
-        "icon": "🔵",
-        "badge_class": "badge-gemini",
-        "models": [
-            "gemini-2.0-flash",
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
-            "gemini-2.0-flash-exp",
-        ],
-        "free_tier": True,
-        "docs": "https://aistudio.google.com/app/apikey",
-        "hint": "AIzaSy…",
-        "key_field": "gemini",
+        "name": "Gemini (Google)", "icon": "🔵", "badge": "pbadge-gemini",
+        "models": ["gemini-2.0-flash","gemini-1.5-flash","gemini-1.5-pro","gemini-2.0-flash-exp"],
+        "free": True, "docs": "https://aistudio.google.com/app/apikey", "hint": "AIzaSy…",
     },
     "groq": {
-        "name": "Groq (Ultra-Fast)",
-        "icon": "⚡",
-        "badge_class": "badge-groq",
-        "models": [
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
-            "mixtral-8x7b-32768",
-            "gemma2-9b-it",
-            "llama3-70b-8192",
-        ],
-        "free_tier": True,
-        "docs": "https://console.groq.com/keys",
-        "hint": "gsk_…",
-        "key_field": "groq",
+        "name": "Groq (Ultra-Fast)", "icon": "⚡", "badge": "pbadge-groq",
+        "models": ["llama-3.3-70b-versatile","llama-3.1-8b-instant","mixtral-8x7b-32768","gemma2-9b-it"],
+        "free": True, "docs": "https://console.groq.com/keys", "hint": "gsk_…",
     },
     "openrouter": {
-        "name": "OpenRouter (Multi-Model)",
-        "icon": "🌐",
-        "badge_class": "badge-openrouter",
-        "models": [
-            "meta-llama/llama-3.3-70b-instruct:free",
-            "google/gemma-3-27b-it:free",
-            "deepseek/deepseek-r1:free",
-            "mistralai/mistral-7b-instruct:free",
-            "qwen/qwen3-14b:free",
-            "nousresearch/hermes-3-llama-3.1-405b:free",
-        ],
-        "free_tier": True,
-        "docs": "https://openrouter.ai/keys",
-        "hint": "sk-or-v1-…",
-        "key_field": "openrouter",
+        "name": "OpenRouter", "icon": "🌐", "badge": "pbadge-openrouter",
+        "models": ["meta-llama/llama-3.3-70b-instruct:free","deepseek/deepseek-r1:free",
+                   "google/gemma-3-27b-it:free","mistralai/mistral-7b-instruct:free",
+                   "qwen/qwen3-14b:free","nousresearch/hermes-3-llama-3.1-405b:free"],
+        "free": True, "docs": "https://openrouter.ai/keys", "hint": "sk-or-v1-…",
     },
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AGENT REGISTRY
+# AGENTS
 # ─────────────────────────────────────────────────────────────────────────────
 AGENTS = {
     "github": {
-        "name": "GitHub Agent", "icon": "🐙",
-        "description": "Repos, issues, PRs, branches, code search.",
-        "api_key_field": "github",
-        "capabilities": ["List repositories", "Create/update issues", "Review PRs",
-                         "Browse files & commits", "Create branches"],
+        "name": "GitHub Agent", "icon": "🐙", "color": "#c0c0c0",
+        "description": "Repos, issues, PRs, commits, code search.",
+        "key_field": "github",
+        "capabilities": ["List repos / search code","Create & update issues","Review PRs","Browse files","Create branches"],
         "system_prompt": (
-            "You are a GitHub Expert Agent. Help users manage GitHub repos, issues, PRs, and code. "
-            "When executing real GitHub API calls, describe exactly what endpoint is being hit, "
-            "the response received, and present results clearly with markdown tables and code blocks. "
-            "If GitHub API key is not set, explain what would happen and simulate a realistic response."
+            "You are a GitHub Expert Agent. When a GitHub token is available, real API calls have already been made and the result prepended to your context. "
+            "Help users manage repos, issues, PRs. Format outputs with markdown tables and code blocks. "
+            "Always mention the exact API endpoint that would be called."
         ),
-        "real_action": "github_query",
-    },
-    "gmail": {
-        "name": "Gmail Agent", "icon": "📧",
-        "description": "Read, compose, send, organize Gmail.",
-        "api_key_field": "gmail_oauth",
-        "capabilities": ["Search and read emails", "Compose and send", "Summarize threads",
-                         "Extract action items", "Manage labels"],
-        "system_prompt": (
-            "You are a Gmail Expert Agent. Help manage Gmail inbox. "
-            "Draft professional emails, summarize threads concisely, extract action items. "
-            "Always show the exact MIME structure of composed emails."
-        ),
-        "real_action": None,
-    },
-    "google_calendar": {
-        "name": "Calendar Agent", "icon": "📅",
-        "description": "Schedule, view, manage Google Calendar.",
-        "api_key_field": "google_calendar",
-        "capabilities": ["View upcoming schedule", "Create events", "Schedule meetings",
-                         "Check availability", "Set reminders"],
-        "system_prompt": (
-            "You are a Google Calendar Expert Agent. Help manage schedule. "
-            "When creating events, confirm: date, time, duration, attendees, location. "
-            "Present schedules in clean readable format and flag conflicts."
-        ),
-        "real_action": None,
+        "quick_prompts": ["List my repos","Show open issues","Recent pull requests","My GitHub profile"],
     },
     "web_search": {
-        "name": "Web Search Agent", "icon": "🔍",
-        "description": "Real-time web search via free APIs.",
-        "api_key_field": None,
-        "capabilities": ["Search the web in real-time", "Summarize search results",
-                         "Extract key information", "Compare sources", "Fact-check claims"],
+        "name": "Web Search", "icon": "🔍", "color": "#38aaee",
+        "description": "Real-time web research & synthesis.",
+        "key_field": None,
+        "capabilities": ["Search & synthesize the web","Fact-check claims","Compare sources","Extract key info"],
         "system_prompt": (
-            "You are a Web Search Expert Agent. You search the web and synthesize information. "
-            "Always cite sources and provide accurate, up-to-date information. "
-            "Structure results clearly with bullet points and source links."
+            "You are a Web Research Expert. Search the web, synthesize findings, cite sources. "
+            "Always structure results clearly with bullet points and source URLs. "
+            "Prioritize recent, authoritative sources."
         ),
-        "real_action": "web_search",
+        "quick_prompts": ["Latest AI news today","Research [topic]","Compare X vs Y","Fact check: [claim]"],
     },
     "code": {
-        "name": "Code Agent", "icon": "💻",
-        "description": "Write, review, debug, and execute code.",
-        "api_key_field": None,
-        "capabilities": ["Write code in any language", "Review & debug code", "Generate tests",
-                         "Explain code", "Suggest optimizations"],
+        "name": "Code Agent", "icon": "💻", "color": "#a060ff",
+        "description": "Write, review, debug, optimize code.",
+        "key_field": None,
+        "capabilities": ["Write any-language code","Review & debug","Generate tests","Explain code","Suggest optimizations"],
         "system_prompt": (
-            "You are an Expert Code Agent. Write clean, well-commented, production-ready code. "
-            "Always explain what the code does, potential edge cases, and how to run it. "
-            "Include error handling and follow best practices."
+            "You are an Expert Code Agent. Write clean, production-ready, well-commented code. "
+            "Always include: what the code does, how to run it, edge cases, and error handling. "
+            "Follow language-specific best practices."
         ),
-        "real_action": None,
+        "quick_prompts": ["Write a Python script to…","Debug this error: [paste]","Review my code","Generate tests for…"],
     },
     "data_analyst": {
-        "name": "Data Analyst", "icon": "📊",
-        "description": "Analyze data, generate insights and charts.",
-        "api_key_field": None,
-        "capabilities": ["Analyze datasets", "Generate statistical summaries", "Spot trends",
-                         "Suggest visualizations", "Write analysis reports"],
+        "name": "Data Analyst", "icon": "📊", "color": "#f0a020",
+        "description": "Analyze data, generate insights, suggest charts.",
+        "key_field": None,
+        "capabilities": ["Statistical analysis","Spot trends & anomalies","Suggest visualizations","Write analysis reports"],
         "system_prompt": (
-            "You are a Data Analysis Expert Agent. Analyze data with statistical rigor. "
-            "Provide insights, identify patterns, suggest actionable next steps. "
-            "Always present numbers in context and recommend appropriate visualizations."
+            "You are a Data Analysis Expert. Analyze data with statistical rigor. "
+            "Provide actionable insights, identify patterns, flag anomalies. "
+            "Always present numbers in context and recommend appropriate charts."
         ),
-        "real_action": None,
+        "quick_prompts": ["Analyze this CSV: [paste]","Find trends in [data]","Summarize key metrics","Suggest charts for…"],
+    },
+    "writer": {
+        "name": "Writer Agent", "icon": "✍️", "color": "#ee6688",
+        "description": "Draft, edit, summarize any content.",
+        "key_field": None,
+        "capabilities": ["Write blog posts / docs","Edit & improve text","Summarize documents","Translate content","SEO optimization"],
+        "system_prompt": (
+            "You are an Expert Writing Agent. Create clear, engaging, well-structured content. "
+            "Adapt tone to context (professional, casual, technical). "
+            "Always check grammar, flow, and readability."
+        ),
+        "quick_prompts": ["Write a blog post about…","Summarize this doc: [paste]","Improve this paragraph","Draft an email to…"],
+    },
+    "gmail": {
+        "name": "Gmail Agent", "icon": "📧", "color": "#ea4335",
+        "description": "Compose, organize, summarize Gmail.",
+        "key_field": "gmail_oauth",
+        "capabilities": ["Compose professional emails","Summarize threads","Extract action items","Manage labels"],
+        "system_prompt": (
+            "You are a Gmail Expert Agent. Compose professional, concise emails. "
+            "Always show Subject, To, and full body. Summarize threads with key decisions and action items."
+        ),
+        "quick_prompts": ["Draft a follow-up email","Compose cold outreach","Summarize this thread","Write a rejection email"],
     },
     "api_connector": {
-        "name": "API Connector", "icon": "🔌",
+        "name": "API Connector", "icon": "🔌", "color": "#26c96e",
         "description": "Connect to any REST API, build integrations.",
-        "api_key_field": None,
-        "capabilities": ["Inspect REST endpoints", "Generate Python/JS/curl code",
-                         "Parse API responses", "Debug HTTP errors", "Build webhook handlers"],
+        "key_field": None,
+        "capabilities": ["Inspect REST endpoints","Generate Python/JS/curl","Debug HTTP errors","Build webhooks"],
         "system_prompt": (
-            "You are an API Integration Expert Agent. Help connect to any REST API. "
-            "Generate complete, runnable code in Python (requests), JavaScript (fetch), or curl. "
-            "Explain auth, headers, and body clearly. Debug errors with specific fixes."
+            "You are an API Integration Expert. Help connect to any REST API. "
+            "Generate complete, runnable code in Python (requests), JS (fetch), or curl. "
+            "Explain auth, headers, body clearly. Debug errors with specific fixes."
         ),
-        "real_action": None,
+        "quick_prompts": ["Connect to [API name]","Debug this HTTP error","Generate Python client","Build a webhook for…"],
+    },
+    "devops": {
+        "name": "DevOps Agent", "icon": "🚀", "color": "#ff6644",
+        "description": "CI/CD, Docker, Kubernetes, infra automation.",
+        "key_field": None,
+        "capabilities": ["Write Dockerfiles","Create CI/CD pipelines","Kubernetes configs","Bash/Shell scripts","Infra as Code"],
+        "system_prompt": (
+            "You are a DevOps Expert Agent. Write production-grade infrastructure code. "
+            "Always include security best practices, resource limits, and health checks. "
+            "Explain what each configuration does and why."
+        ),
+        "quick_prompts": ["Write a Dockerfile for…","Create a GitHub Actions CI","Kubernetes deployment for…","Bash script to…"],
     },
 }
 
-API_FIELDS = {
-    "anthropic":        {"label": "Anthropic API Key",            "hint": "sk-ant-api03-…",     "docs": "https://console.anthropic.com/",             "provider": "anthropic"},
-    "gemini":           {"label": "Google Gemini API Key",        "hint": "AIzaSy…",             "docs": "https://aistudio.google.com/app/apikey",     "provider": "gemini",   "free": True},
-    "groq":             {"label": "Groq API Key",                 "hint": "gsk_…",               "docs": "https://console.groq.com/keys",              "provider": "groq",     "free": True},
-    "openrouter":       {"label": "OpenRouter API Key",           "hint": "sk-or-v1-…",          "docs": "https://openrouter.ai/keys",                 "provider": "openrouter","free": True},
-    "github":           {"label": "GitHub Personal Access Token", "hint": "ghp_… or github_pat_…","docs": "https://github.com/settings/tokens",        "provider": None},
-    "gmail_oauth":      {"label": "Gmail OAuth JSON",             "hint": "Paste JSON from GCP…","docs": "https://console.cloud.google.com/",          "provider": None},
-    "google_calendar":  {"label": "Google Calendar API Key",      "hint": "AIza…",               "docs": "https://console.cloud.google.com/",          "provider": None},
-}
+# ─────────────────────────────────────────────────────────────────────────────
+# QUICK-RUN PIPELINE TEMPLATES
+# ─────────────────────────────────────────────────────────────────────────────
+PIPELINE_TEMPLATES = [
+    {
+        "name": "Research → Write → Review",
+        "desc": "Research a topic, write an article, then review it",
+        "icon": "📰",
+        "steps": [
+            {"agent":"web_search","instruction":"Research this topic thoroughly and gather key facts, stats, and sources","provider":"groq","model":"llama-3.3-70b-versatile"},
+            {"agent":"writer",    "instruction":"Write a comprehensive, well-structured article based on the research","provider":"anthropic","model":"claude-sonnet-4-20250514"},
+            {"agent":"writer",    "instruction":"Review and improve the article for clarity, flow, and accuracy","provider":"groq","model":"llama-3.3-70b-versatile"},
+        ]
+    },
+    {
+        "name": "GitHub → Code Review → Email",
+        "desc": "Analyze a GitHub repo, review code quality, draft a report email",
+        "icon": "🐙",
+        "steps": [
+            {"agent":"github",       "instruction":"Analyze the provided GitHub repository or issue","provider":"groq","model":"llama-3.3-70b-versatile"},
+            {"agent":"code",         "instruction":"Review the code quality, suggest improvements and best practices","provider":"anthropic","model":"claude-sonnet-4-20250514"},
+            {"agent":"gmail",        "instruction":"Draft a professional email summarizing the code review findings","provider":"groq","model":"llama-3.3-70b-versatile"},
+        ]
+    },
+    {
+        "name": "Data → Insights → Report",
+        "desc": "Analyze data, extract insights, write a business report",
+        "icon": "📊",
+        "steps": [
+            {"agent":"data_analyst","instruction":"Analyze the provided data and identify key patterns and trends","provider":"groq","model":"llama-3.3-70b-versatile"},
+            {"agent":"data_analyst","instruction":"Generate actionable business insights and recommendations","provider":"anthropic","model":"claude-sonnet-4-20250514"},
+            {"agent":"writer",      "instruction":"Write a professional executive summary report","provider":"groq","model":"llama-3.3-70b-versatile"},
+        ]
+    },
+    {
+        "name": "Idea → Code → Deploy",
+        "desc": "Turn an idea into code with a deployment config",
+        "icon": "🚀",
+        "steps": [
+            {"agent":"code",   "instruction":"Write clean, production-ready code for this idea","provider":"anthropic","model":"claude-sonnet-4-20250514"},
+            {"agent":"code",   "instruction":"Add error handling, tests, and documentation to the code","provider":"groq","model":"llama-3.3-70b-versatile"},
+            {"agent":"devops", "instruction":"Create a Dockerfile and deployment configuration for this application","provider":"groq","model":"llama-3.3-70b-versatile"},
+        ]
+    },
+]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SESSION STATE
@@ -312,344 +411,463 @@ API_FIELDS = {
 _defaults = {
     "api_keys":           {},
     "pipelines":          [],
-    "chat_histories":     {},
+    "chat_histories":     {},   # {agent_id: [{role,content,ts,provider,model,tokens,latency}]}
     "active_agent":       "github",
     "logs":               [],
-    "active_provider":    "anthropic",
-    "active_model":       "claude-sonnet-4-20250514",
+    "active_provider":    "groq",
+    "active_model":       "llama-3.3-70b-versatile",
     "max_tokens":         2048,
-    "pipeline_steps":     [],
-    "cmd_log":            [],   # command center log
     "temperature":        0.7,
+    "pipeline_steps":     [],
+    "cmd_log":            [],
+    # Resilience
+    "retry_max":          3,
+    "retry_delay":        1.5,   # seconds between retries
+    "circuit_breakers":   {},    # {provider: {failures, open_until}}
+    "circuit_threshold":  3,     # failures before opening circuit
+    "circuit_timeout":    60,    # seconds circuit stays open
+    "fallback_chain":     ["groq","anthropic","gemini","openrouter"],
+    "auto_fallback":      True,
+    # Stats
+    "stats": {"total_calls":0,"total_tokens":0,"total_errors":0,"provider_calls":{},"provider_errors":{},"latencies":[]},
+    # UX
+    "prompt_history":     [],    # last 20 prompts for quick recall
+    "pinned_agents":      [],
+    "show_cmd_panel":     False,
+    "compact_mode":       False,
 }
 for _k, _v in _defaults.items():
     if _k not in st.session_state:
         st.session_state[_k] = _v
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# COMMAND CENTER LOGGING
+# HELPERS — logging
 # ─────────────────────────────────────────────────────────────────────────────
-def cmd_log(level: str, msg: str, data: str = ""):
+def cmd_log(level: str, msg: str):
     ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-    st.session_state.cmd_log.append({
-        "ts": ts, "level": level, "msg": msg, "data": data
-    })
-    # keep last 500 lines
-    if len(st.session_state.cmd_log) > 500:
-        st.session_state.cmd_log = st.session_state.cmd_log[-500:]
+    st.session_state.cmd_log.append({"ts": ts, "level": level, "msg": msg})
+    if len(st.session_state.cmd_log) > 1000:
+        st.session_state.cmd_log = st.session_state.cmd_log[-800:]
 
 def add_log(agent: str, action: str, content: str):
     st.session_state.logs.append({
         "ts": datetime.now().strftime("%H:%M:%S"),
-        "agent": agent, "action": action, "content": content
+        "agent": agent, "action": action, "content": content,
     })
-
+    if len(st.session_state.logs) > 500:
+        st.session_state.logs = st.session_state.logs[-400:]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# REAL LLM CALL — routes to correct provider
+# CIRCUIT BREAKER
 # ─────────────────────────────────────────────────────────────────────────────
-def call_llm(messages: list, system_prompt: str = "", provider: str = None, model: str = None) -> tuple[str, str]:
-    """Returns (response_text, error_or_empty). Logs every step to cmd_log."""
-    provider = provider or st.session_state.active_provider
-    model    = model    or st.session_state.active_model
+def circuit_is_open(provider: str) -> bool:
+    cb = st.session_state.circuit_breakers.get(provider, {})
+    if not cb:
+        return False
+    if cb.get("open_until") and time.time() < cb["open_until"]:
+        return True
+    if cb.get("open_until"):
+        # auto-reset
+        st.session_state.circuit_breakers[provider] = {"failures": 0, "open_until": None}
+        cmd_log("circuit", f"⟳ Circuit RESET for {provider}")
+    return False
 
-    cmd_log("cmd",  f"▶ CALL [{provider.upper()}] model={model}")
-    cmd_log("info", f"  messages={len(messages)} | sys_prompt={len(system_prompt)} chars")
+def circuit_record_failure(provider: str):
+    cb = st.session_state.circuit_breakers.setdefault(provider, {"failures": 0, "open_until": None})
+    cb["failures"] = cb.get("failures", 0) + 1
+    if cb["failures"] >= st.session_state.circuit_threshold:
+        cb["open_until"] = time.time() + st.session_state.circuit_timeout
+        cmd_log("circuit", f"⚡ Circuit OPEN for {provider} — {st.session_state.circuit_timeout}s cooldown")
+        add_log(f"Circuit Breaker", "circuit_open", f"{provider} tripped after {cb['failures']} failures")
 
+def circuit_record_success(provider: str):
+    st.session_state.circuit_breakers.pop(provider, None)
+
+def circuit_status_html(provider: str) -> str:
+    cb = st.session_state.circuit_breakers.get(provider, {})
+    if not cb or not cb.get("open_until"):
+        return ""
+    remaining = max(0, int(cb["open_until"] - time.time()))
+    if remaining > 0:
+        return f" <span class='pill pill-red'>⚡ Circuit open ({remaining}s)</span>"
+    return ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CORE LLM CALL with retry + exponential backoff + circuit breaker
+# ─────────────────────────────────────────────────────────────────────────────
+def _single_call(provider: str, model: str, messages: list, system_prompt: str) -> tuple[str, int]:
+    """Single attempt. Returns (text, total_tokens). Raises on error."""
     key = st.session_state.api_keys.get(provider, "")
     if not key:
-        err = f"No API key set for provider '{provider}'. Add it in API Config."
-        cmd_log("error", f"✗ AUTH ERROR: {err}")
-        return "", err
+        raise ValueError(f"No API key for '{provider}'")
 
-    t0 = time.time()
+    cmd_log("cmd", f"  POST → {provider}/{model} ({len(messages)} msgs)")
 
-    # ── Anthropic ──────────────────────────────────────────────────────────
     if provider == "anthropic":
-        try:
-            cmd_log("cmd", f"  POST https://api.anthropic.com/v1/messages")
-            client = anthropic.Anthropic(api_key=key)
-            kwargs = dict(
-                model=model,
-                max_tokens=st.session_state.max_tokens,
-                messages=messages,
-            )
-            if system_prompt:
-                kwargs["system"] = system_prompt
-            resp = client.messages.create(**kwargs)
-            text = "".join(b.text for b in resp.content if b.type == "text")
-            elapsed = time.time() - t0
-            cmd_log("success", f"  ✓ 200 OK | {len(text)} chars | {elapsed:.2f}s | tokens_in={resp.usage.input_tokens} out={resp.usage.output_tokens}")
-            return text, ""
-        except Exception as e:
-            cmd_log("error", f"  ✗ {type(e).__name__}: {e}")
-            return "", str(e)
+        client = anthropic.Anthropic(api_key=key)
+        kwargs = dict(model=model, max_tokens=st.session_state.max_tokens, messages=messages)
+        if system_prompt:
+            kwargs["system"] = system_prompt
+        resp   = client.messages.create(**kwargs)
+        text   = "".join(b.text for b in resp.content if b.type == "text")
+        tokens = resp.usage.input_tokens + resp.usage.output_tokens
+        return text, tokens
 
-    # ── Gemini ─────────────────────────────────────────────────────────────
     elif provider == "gemini":
-        try:
-            import google.generativeai as genai
-            cmd_log("cmd", f"  POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent")
-            genai.configure(api_key=key)
+        import google.generativeai as genai
+        genai.configure(api_key=key)
+        full = []
+        if system_prompt:
+            full += [{"role":"user","parts":[system_prompt + "\n\nUnderstood?"]},
+                     {"role":"model","parts":["Understood."]}]
+        for m in messages:
+            full.append({"role":"model" if m["role"]=="assistant" else "user","parts":[m["content"]]})
+        gen_model = genai.GenerativeModel(model)
+        chat      = gen_model.start_chat(history=full[:-1])
+        r         = chat.send_message(full[-1]["parts"][0])
+        return r.text, 0
 
-            # Build prompt
-            full_msgs = []
-            if system_prompt:
-                full_msgs.append({"role": "user", "parts": [system_prompt + "\n\nNow follow these instructions."]})
-                full_msgs.append({"role": "model", "parts": ["Understood. I'll follow those instructions."]})
-            for m in messages:
-                role = "model" if m["role"] == "assistant" else "user"
-                full_msgs.append({"role": role, "parts": [m["content"]]})
-
-            gen_model = genai.GenerativeModel(model)
-            chat      = gen_model.start_chat(history=full_msgs[:-1])
-            response  = chat.send_message(full_msgs[-1]["parts"][0])
-            text      = response.text
-            elapsed   = time.time() - t0
-            cmd_log("success", f"  ✓ 200 OK | {len(text)} chars | {elapsed:.2f}s")
-            return text, ""
-        except Exception as e:
-            cmd_log("error", f"  ✗ {type(e).__name__}: {e}")
-            return "", str(e)
-
-    # ── Groq ───────────────────────────────────────────────────────────────
     elif provider == "groq":
-        try:
-            from groq import Groq
-            cmd_log("cmd", f"  POST https://api.groq.com/openai/v1/chat/completions")
-            client = Groq(api_key=key)
-            msgs_to_send = []
-            if system_prompt:
-                msgs_to_send.append({"role": "system", "content": system_prompt})
-            msgs_to_send.extend(messages)
-            resp    = client.chat.completions.create(
-                model=model, messages=msgs_to_send,
-                max_tokens=st.session_state.max_tokens,
-                temperature=st.session_state.temperature,
-            )
-            text    = resp.choices[0].message.content
-            elapsed = time.time() - t0
-            cmd_log("success", f"  ✓ 200 OK | {len(text)} chars | {elapsed:.2f}s | tokens={resp.usage.total_tokens}")
-            return text, ""
-        except Exception as e:
-            cmd_log("error", f"  ✗ {type(e).__name__}: {e}")
-            return "", str(e)
+        from groq import Groq
+        client = Groq(api_key=key)
+        msgs   = []
+        if system_prompt:
+            msgs.append({"role":"system","content":system_prompt})
+        msgs.extend(messages)
+        r      = client.chat.completions.create(
+            model=model, messages=msgs,
+            max_tokens=st.session_state.max_tokens,
+            temperature=st.session_state.temperature,
+        )
+        text   = r.choices[0].message.content
+        tokens = r.usage.total_tokens
+        return text, tokens
 
-    # ── OpenRouter ─────────────────────────────────────────────────────────
     elif provider == "openrouter":
-        try:
-            cmd_log("cmd", f"  POST https://openrouter.ai/api/v1/chat/completions")
-            msgs_to_send = []
-            if system_prompt:
-                msgs_to_send.append({"role": "system", "content": system_prompt})
-            msgs_to_send.extend(messages)
-            headers = {
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://agentos.app",
-                "X-Title": "AgentOS Pro",
-            }
-            payload = {
-                "model": model,
-                "messages": msgs_to_send,
-                "max_tokens": st.session_state.max_tokens,
-                "temperature": st.session_state.temperature,
-            }
-            r = requests.post("https://openrouter.ai/api/v1/chat/completions",
-                              headers=headers, json=payload, timeout=60)
-            cmd_log("data", f"  HTTP {r.status_code}")
-            if r.status_code != 200:
-                err = r.json().get("error", {}).get("message", r.text[:200])
-                cmd_log("error", f"  ✗ {err}")
-                return "", err
-            data    = r.json()
-            text    = data["choices"][0]["message"]["content"]
-            elapsed = time.time() - t0
-            usage   = data.get("usage", {})
-            cmd_log("success", f"  ✓ 200 OK | {len(text)} chars | {elapsed:.2f}s | tokens={usage.get('total_tokens','?')}")
-            return text, ""
-        except Exception as e:
-            cmd_log("error", f"  ✗ {type(e).__name__}: {e}")
-            return "", str(e)
+        msgs = []
+        if system_prompt:
+            msgs.append({"role":"system","content":system_prompt})
+        msgs.extend(messages)
+        r = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization":f"Bearer {key}","Content-Type":"application/json",
+                     "HTTP-Referer":"https://agentos.app","X-Title":"AgentOS Pro"},
+            json={"model":model,"messages":msgs,
+                  "max_tokens":st.session_state.max_tokens,
+                  "temperature":st.session_state.temperature},
+            timeout=90,
+        )
+        if r.status_code != 200:
+            raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
+        data   = r.json()
+        text   = data["choices"][0]["message"]["content"]
+        tokens = data.get("usage", {}).get("total_tokens", 0)
+        return text, tokens
 
-    else:
-        err = f"Unknown provider: {provider}"
-        cmd_log("error", f"  ✗ {err}")
-        return "", err
+    raise ValueError(f"Unknown provider: {provider}")
+
+
+def call_llm(
+    messages: list,
+    system_prompt: str = "",
+    provider: str = None,
+    model: str = None,
+) -> tuple[str, str, dict]:
+    """
+    Full resilient call: retry with backoff + circuit breaker + auto-fallback.
+    Returns (text, error_msg, meta_dict).
+    meta_dict: {provider, model, tokens, latency_ms, attempts, fallback_used}
+    """
+    provider = provider or st.session_state.active_provider
+    model    = model    or st.session_state.active_model
+    max_r    = st.session_state.retry_max
+    delay    = st.session_state.retry_delay
+
+    cmd_log("cmd", f"▶ CALL [{provider.upper()}] {model}")
+
+    # Build list of (provider, model) to try
+    candidates = [(provider, model)]
+    if st.session_state.auto_fallback:
+        for fb_pid in st.session_state.fallback_chain:
+            if fb_pid != provider and st.session_state.api_keys.get(fb_pid, ""):
+                fb_model = PROVIDERS[fb_pid]["models"][0]
+                candidates.append((fb_pid, fb_model))
+
+    last_err = ""
+    for try_provider, try_model in candidates:
+        if circuit_is_open(try_provider):
+            cmd_log("circuit", f"  ⚡ Skipping {try_provider} — circuit open")
+            continue
+
+        t0 = time.time()
+        for attempt in range(1, max_r + 1):
+            try:
+                if attempt > 1:
+                    sleep_t = delay * (2 ** (attempt - 2)) + random.uniform(0, 0.3)
+                    cmd_log("retry", f"  ↻ Retry {attempt}/{max_r} ({try_provider}) — wait {sleep_t:.1f}s")
+                    time.sleep(sleep_t)
+
+                text, tokens = _single_call(try_provider, try_model, messages, system_prompt)
+                latency_ms   = int((time.time() - t0) * 1000)
+                fallback_used = (try_provider != provider)
+
+                # Update stats
+                s = st.session_state.stats
+                s["total_calls"] += 1
+                s["total_tokens"] += tokens
+                s["provider_calls"][try_provider] = s["provider_calls"].get(try_provider, 0) + 1
+                s["latencies"].append(latency_ms)
+                if len(s["latencies"]) > 200:
+                    s["latencies"] = s["latencies"][-150:]
+
+                circuit_record_success(try_provider)
+                cmd_log("ok", f"  ✓ {try_provider}/{try_model} | {latency_ms}ms | {tokens} tok | attempt {attempt}")
+                if fallback_used:
+                    cmd_log("warn", f"  ⚑ Used fallback provider: {try_provider}")
+
+                return text, "", {
+                    "provider": try_provider, "model": try_model,
+                    "tokens": tokens, "latency_ms": latency_ms,
+                    "attempts": attempt, "fallback_used": fallback_used,
+                }
+
+            except Exception as e:
+                last_err = str(e)
+                cmd_log("err", f"  ✗ {try_provider} attempt {attempt}: {last_err[:80]}")
+                s = st.session_state.stats
+                s["total_errors"] += 1
+                s["provider_errors"][try_provider] = s["provider_errors"].get(try_provider, 0) + 1
+
+                if attempt == max_r:
+                    circuit_record_failure(try_provider)
+
+    cmd_log("err", f"  ✗✗ ALL providers failed. Last: {last_err[:100]}")
+    add_log("System", "error", last_err)
+    return "", last_err, {"provider": provider, "model": model, "tokens": 0, "latency_ms": 0, "attempts": max_r, "fallback_used": False}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# REAL GitHub API call
+# Real GitHub API
 # ─────────────────────────────────────────────────────────────────────────────
-def real_github_query(user_message: str) -> str | None:
-    """If user asks something answerable via GitHub API directly, do it. Returns None if not applicable."""
-    gh_key = st.session_state.api_keys.get("github", "")
-    if not gh_key:
+def github_real(msg: str) -> str | None:
+    key = st.session_state.api_keys.get("github", "")
+    if not key:
         return None
-    msg_lower = user_message.lower()
-    headers = {"Authorization": f"token {gh_key}", "Accept": "application/vnd.github.v3+json"}
+    h   = {"Authorization": f"token {key}", "Accept": "application/vnd.github.v3+json"}
+    ml  = msg.lower()
     try:
-        if "my repos" in msg_lower or "list repos" in msg_lower or "my repositories" in msg_lower:
-            cmd_log("cmd", "  → GitHub API: GET /user/repos")
-            r = requests.get("https://api.github.com/user/repos?sort=updated&per_page=10", headers=headers, timeout=10)
-            cmd_log("data", f"  HTTP {r.status_code}")
+        if any(x in ml for x in ["my repos","list repos","repositories"]):
+            cmd_log("cmd", "  → GitHub GET /user/repos")
+            r = requests.get("https://api.github.com/user/repos?sort=updated&per_page=15", headers=h, timeout=10)
             if r.status_code == 200:
                 repos = r.json()
-                lines = [f"**Your 10 most recently updated repos:**\n"]
-                for repo in repos:
-                    lines.append(f"- 🔗 [{repo['full_name']}]({repo['html_url']}) — ⭐{repo['stargazers_count']} | {repo['language'] or 'N/A'} | {'🔒 Private' if repo['private'] else '🔓 Public'}")
-                return "\n".join(lines)
-        if "my profile" in msg_lower or "who am i" in msg_lower or "github user" in msg_lower:
-            cmd_log("cmd", "  → GitHub API: GET /user")
-            r = requests.get("https://api.github.com/user", headers=headers, timeout=10)
+                rows  = "\n".join(f"| [{x['full_name']}]({x['html_url']}) | {x.get('language') or '—'} | ⭐{x['stargazers_count']} | {'🔒' if x['private'] else '🔓'} | {x['updated_at'][:10]} |" for x in repos)
+                return f"**Your GitHub Repositories** ({len(repos)} most recent)\n\n| Repo | Lang | Stars | Vis | Updated |\n|---|---|---|---|---|\n{rows}"
+        if any(x in ml for x in ["profile","who am i","my account"]):
+            cmd_log("cmd", "  → GitHub GET /user")
+            r = requests.get("https://api.github.com/user", headers=h, timeout=10)
             if r.status_code == 200:
                 u = r.json()
-                return f"**GitHub Profile**\n\n👤 **{u['name'] or u['login']}** (@{u['login']})\n📧 {u.get('email','—')}\n🏢 {u.get('company','—')}\n⭐ Followers: {u['followers']} | Following: {u['following']}\n📦 Public repos: {u['public_repos']}"
+                return (f"**GitHub Profile — {u.get('name') or u['login']}**\n\n"
+                        f"- 👤 Login: `{u['login']}`\n- 📧 {u.get('email') or '—'}\n"
+                        f"- 🏢 {u.get('company') or '—'}\n- 📦 {u['public_repos']} public repos\n"
+                        f"- 👥 {u['followers']} followers · {u['following']} following")
     except Exception as e:
-        cmd_log("error", f"  GitHub API error: {e}")
+        cmd_log("err", f"  GitHub API: {e}")
     return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SIDEBAR
 # ─────────────────────────────────────────────────────────────────────────────
-NAV_OPTIONS = ["🏠  Dashboard", "🤖  Agents", "🔗  Pipelines", "🔑  API Config",
-               "🖥  Command Center", "📋  Logs", "⚙️  Settings"]
+NAV = ["🏠  Dashboard", "🤖  Agents", "🔗  Pipelines", "🔑  API Config",
+       "🛡  Resilience", "🖥  Command Center", "📋  Logs", "⚙️  Settings"]
 
 with st.sidebar:
     st.markdown("""
     <div class='logo-wrap'>
-      <div class='logo-icon'>🤖</div>
+      <div class='logo-icon'>⚡</div>
       <div class='logo-name'>AgentOS Pro</div>
-      <div class='logo-sub'>MULTI-PROVIDER PLATFORM</div>
+      <div class='logo-sub'>Multi-Provider · Resilient · v4.0</div>
     </div>
     """, unsafe_allow_html=True)
 
-    nav = st.radio("nav", NAV_OPTIONS, label_visibility="collapsed")
+    nav = st.radio("nav", NAV, label_visibility="collapsed")
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    # Provider + model selector
+    st.markdown("<div class='stitle'>LLM Provider</div>", unsafe_allow_html=True)
+    prov_map = {pid: f"{p['icon']}  {p['name']}" for pid, p in PROVIDERS.items()}
+    chosen_p = st.selectbox("Provider", list(prov_map.keys()),
+                             format_func=lambda x: prov_map[x],
+                             index=list(PROVIDERS.keys()).index(st.session_state.active_provider),
+                             label_visibility="collapsed", key="sb_provider")
+    if chosen_p != st.session_state.active_provider:
+        st.session_state.active_provider = chosen_p
+        st.session_state.active_model    = PROVIDERS[chosen_p]["models"][0]
 
-    # Provider selector
-    st.markdown("<div class='stitle'>Active Provider</div>", unsafe_allow_html=True)
-    provider_labels = {pid: f"{p['icon']} {p['name']}" for pid, p in PROVIDERS.items()}
-    chosen_provider = st.selectbox(
-        "Provider", list(provider_labels.keys()),
-        format_func=lambda x: provider_labels[x],
-        index=list(PROVIDERS.keys()).index(st.session_state.active_provider),
-        label_visibility="collapsed",
-        key="sidebar_provider"
-    )
-    if chosen_provider != st.session_state.active_provider:
-        st.session_state.active_provider = chosen_provider
-        st.session_state.active_model    = PROVIDERS[chosen_provider]["models"][0]
+    p_models  = PROVIDERS[st.session_state.active_provider]["models"]
+    cur_m     = st.session_state.active_model if st.session_state.active_model in p_models else p_models[0]
+    chosen_m  = st.selectbox("Model", p_models, index=p_models.index(cur_m),
+                              label_visibility="collapsed", key="sb_model")
+    st.session_state.active_model = chosen_m
 
-    provider_models = PROVIDERS[st.session_state.active_provider]["models"]
-    current_model   = st.session_state.active_model if st.session_state.active_model in provider_models else provider_models[0]
-    chosen_model = st.selectbox(
-        "Model", provider_models,
-        index=provider_models.index(current_model),
-        label_visibility="collapsed",
-        key="sidebar_model"
-    )
-    st.session_state.active_model = chosen_model
+    # Circuit breaker status
+    open_circuits = [pid for pid, cb in st.session_state.circuit_breakers.items()
+                     if cb.get("open_until") and time.time() < cb["open_until"]]
+    if open_circuits:
+        st.markdown(f"<div class='alert alert-err'>⚡ Circuit open: {', '.join(open_circuits)}</div>",
+                    unsafe_allow_html=True)
 
-    # API status
-    connected_count = sum(1 for f in API_FIELDS if st.session_state.api_keys.get(f, ""))
-    free_ready      = any(
-        st.session_state.api_keys.get(pid, "")
-        for pid, p in PROVIDERS.items() if p.get("free_tier")
-    )
-    free_tag = "<span style='color:#2ecc71;font-size:10px'>✓ free tier ready</span>" if free_ready else ""
-
+    # Stats strip
+    s   = st.session_state.stats
+    avg = (sum(s["latencies"]) // len(s["latencies"])) if s["latencies"] else 0
+    keys_set = sum(1 for p in PROVIDERS if st.session_state.api_keys.get(p, ""))
     st.markdown(f"""
-    <div style='padding:10px 14px;background:#0d0d22;border:1px solid #1a1a30;border-radius:10px;font-size:12px;margin-top:8px'>
-      <div style='color:#404060'>API Status</div>
-      <div style='color:#2ecc71;font-weight:700;margin-top:3px'>{connected_count} keys set</div>
-      {free_tag}
+    <div style='margin-top:10px;padding:10px 12px;background:#0b0b1e;border:1px solid #12122a;
+                border-radius:9px;font-size:11px;'>
+      <div style='display:grid;grid-template-columns:1fr 1fr;gap:6px'>
+        <div><span style='color:#4444bb'>Calls</span><br><b style='color:#a0a0cc'>{s['total_calls']}</b></div>
+        <div><span style='color:#4444bb'>Tokens</span><br><b style='color:#a0a0cc'>{s['total_tokens']:,}</b></div>
+        <div><span style='color:#4444bb'>Errors</span><br><b style='color:{"#ff4444" if s["total_errors"] else "#a0a0cc"}'>{s['total_errors']}</b></div>
+        <div><span style='color:#4444bb'>Avg ms</span><br><b style='color:#a0a0cc'>{avg}</b></div>
+      </div>
+      <div style='margin-top:6px;color:#282850'>{keys_set}/{len(PROVIDERS)} providers configured</div>
     </div>
-    <div style='font-size:10px;color:#282840;text-align:center;margin-top:16px'>AgentOS Pro v3.0</div>
     """, unsafe_allow_html=True)
 
-connected_count = sum(1 for f in API_FIELDS if st.session_state.api_keys.get(f, ""))
+    # Reset circuit breakers
+    if open_circuits:
+        if st.button("↺ Reset Circuits", use_container_width=True):
+            st.session_state.circuit_breakers = {}
+            st.rerun()
+
+    st.markdown(f"<div style='font-size:9px;color:#1e1e38;text-align:center;margin-top:12px'>AgentOS Pro v4.0</div>",
+                unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PAGE: DASHBOARD
 # ─────────────────────────────────────────────────────────────────────────────
 def page_dashboard():
-    st.markdown("## 🏠 Dashboard")
-    st.markdown("<p style='margin-top:-8px;margin-bottom:20px'>Multi-provider AI agent platform — Anthropic · Gemini · Groq · OpenRouter</p>",
-                unsafe_allow_html=True)
+    st.markdown("## ⚡ AgentOS Pro")
+    st.markdown("<p style='margin-top:-6px;margin-bottom:18px;font-size:13px'>Multi-provider AI agent platform with automatic retry, fallback & circuit breakers.</p>", unsafe_allow_html=True)
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    for col, num, lbl, color in [
-        (c1, len(AGENTS),                         "AGENTS",    "#5555cc"),
-        (c2, len(PROVIDERS),                      "PROVIDERS", "#b06aff"),
-        (c3, connected_count,                     "KEYS SET",  "#2ecc71"),
-        (c4, len(st.session_state.pipelines),     "PIPELINES", "#f0a500"),
-        (c5, len(st.session_state.cmd_log),       "CMD LINES", "#3db4ff"),
-    ]:
+    s = st.session_state.stats
+    avg = (sum(s["latencies"]) // len(s["latencies"])) if s["latencies"] else 0
+    success_rate = int(100 * (s["total_calls"] - s["total_errors"]) / s["total_calls"]) if s["total_calls"] else 100
+
+    cols = st.columns(6)
+    metrics = [
+        ("total_calls",     "Calls",       str(s["total_calls"]),            "#4444cc"),
+        ("total_tokens",    "Tokens",       f"{s['total_tokens']:,}",         "#a060ff"),
+        ("agents",          "Agents",       str(len(AGENTS)),                 "#38aaee"),
+        ("pipelines",       "Pipelines",    str(len(st.session_state.pipelines)), "#f0a020"),
+        ("success",         "Success %",   f"{success_rate}%",               "#26c96e" if success_rate >= 90 else "#f0a020"),
+        ("avg_latency",     "Avg ms",       str(avg),                         "#ee6688"),
+    ]
+    for col, (_, lbl, val, color) in zip(cols, metrics):
         col.markdown(f"""
         <div class='kpi'>
-          <div class='kpi-num' style='color:{color}'>{num}</div>
+          <div class='kpi-num' style='color:{color}'>{val}</div>
           <div class='kpi-lbl'>{lbl}</div>
         </div>""", unsafe_allow_html=True)
 
-    # Provider status
-    st.markdown("<div class='stitle'>Provider Status</div>", unsafe_allow_html=True)
+    # Provider health grid
+    st.markdown("<div class='stitle'>Provider Health</div>", unsafe_allow_html=True)
     pcols = st.columns(4)
     for i, (pid, prov) in enumerate(PROVIDERS.items()):
-        key_set = bool(st.session_state.api_keys.get(pid, ""))
-        status  = "🟢 Connected" if key_set else ("🟡 Free — add key" if prov["free_tier"] else "⚠ Key needed")
-        color   = "#2ecc71" if key_set else ("#f0a500" if prov["free_tier"] else "#ff5252")
-        is_active = pid == st.session_state.active_provider
-        border  = "border-color:#5555cc;" if is_active else ""
-        pcols[i].markdown(f"""
-        <div class='card' style='{border}'>
-          <div style='font-size:22px'>{prov['icon']}</div>
-          <div style='font-size:13px;font-weight:600;color:#d8d8f8;margin:5px 0 3px'>{prov['name']}</div>
-          <div style='font-size:11px;color:{color}'>{status}</div>
-          {'<div style="font-size:10px;color:#5555cc;margin-top:4px">● ACTIVE</div>' if is_active else ''}
-        </div>""", unsafe_allow_html=True)
+        key_ok    = bool(st.session_state.api_keys.get(pid, ""))
+        cb        = st.session_state.circuit_breakers.get(pid, {})
+        is_open   = cb.get("open_until") and time.time() < cb["open_until"]
+        calls_ok  = s["provider_calls"].get(pid, 0)
+        calls_err = s["provider_errors"].get(pid, 0)
+        total_p   = calls_ok + calls_err
+        err_rate  = (calls_err / total_p * 100) if total_p else 0
+        health_pct= max(0, 100 - err_rate)
+        hcolor    = "#26c96e" if health_pct > 80 else ("#f0a020" if health_pct > 50 else "#ff4444")
 
-    # Agents
-    st.markdown("<div class='stitle'>Available Agents</div>", unsafe_allow_html=True)
+        if is_open:
+            remaining = max(0, int(cb["open_until"] - time.time()))
+            status_html = f"<span class='pill pill-red'>⚡ OPEN {remaining}s</span>"
+        elif not key_ok:
+            status_html = f"<span class='pill pill-yellow'>{'🆓 Free — add key' if prov['free'] else '⚠ Key needed'}</span>"
+        else:
+            status_html = f"<span class='pill pill-green'><span class='dot dot-green'></span> Connected</span>"
+
+        is_active = pid == st.session_state.active_provider
+        with pcols[i]:
+            st.markdown(f"""
+            <div class='card {"card-active" if is_active else ""}'>
+              <div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:6px'>
+                <span style='font-size:18px'>{prov['icon']}</span>
+                {status_html}
+              </div>
+              <div style='font-size:12px;font-weight:600;color:#d0d0f0'>{prov['name']}</div>
+              <div style='font-size:10px;color:#303050;margin-top:2px'>{calls_ok} ok · {calls_err} err · {int(err_rate)}% err rate</div>
+              <div class='health-bar' style='margin-top:8px'>
+                <div class='health-fill' style='width:{int(health_pct)}%;background:{hcolor}'></div>
+              </div>
+              {'<div style="font-size:9px;color:#4444bb;margin-top:4px;font-weight:700">● ACTIVE</div>' if is_active else ''}
+            </div>""", unsafe_allow_html=True)
+
+    # Agents grid
+    st.markdown("<div class='stitle'>Agents</div>", unsafe_allow_html=True)
     acols = st.columns(4)
     for i, (aid, agent) in enumerate(AGENTS.items()):
-        field = agent.get("api_key_field")
-        ok = (field is None) or bool(st.session_state.api_keys.get(field, ""))
-        pill = f"<span class='pill pill-green'>● Ready</span>" if ok else \
-               f"<span class='pill pill-yellow'>⚠ Key needed</span>"
+        field = agent.get("key_field")
+        ok    = (field is None) or bool(st.session_state.api_keys.get(field, ""))
+        msgs  = len(st.session_state.chat_histories.get(aid, []))
         with acols[i % 4]:
             st.markdown(f"""
             <div class='card'>
-              <div style='font-size:24px'>{agent['icon']}</div>
-              <div style='font-size:13px;font-weight:600;color:#e0e0ff;margin:5px 0 3px'>{agent['name']}</div>
-              <div style='font-size:11px;color:#505070;margin-bottom:8px'>{agent['description']}</div>
-              {pill}
+              <div style='display:flex;align-items:center;gap:8px;margin-bottom:6px'>
+                <span style='font-size:22px'>{agent['icon']}</span>
+                <div>
+                  <div style='font-size:12px;font-weight:600;color:#d0d0f0'>{agent['name']}</div>
+                  <div style='font-size:10px;color:#303050'>{msgs} messages</div>
+                </div>
+              </div>
+              <div style='font-size:10px;color:#404060;margin-bottom:6px'>{agent['description']}</div>
+              {'<span class="pill pill-green">● Ready</span>' if ok else '<span class="pill pill-yellow">⚠ Key needed</span>'}
             </div>""", unsafe_allow_html=True)
 
+    # Quick-run templates
+    st.markdown("<div class='stitle'>Quick-Run Templates</div>", unsafe_allow_html=True)
+    tcols = st.columns(4)
+    for i, tmpl in enumerate(PIPELINE_TEMPLATES):
+        with tcols[i % 4]:
+            st.markdown(f"""
+            <div class='card'>
+              <div style='font-size:22px;margin-bottom:6px'>{tmpl['icon']}</div>
+              <div style='font-size:12px;font-weight:600;color:#d0d0f0'>{tmpl['name']}</div>
+              <div style='font-size:10px;color:#404060;margin-top:2px'>{tmpl['desc']}</div>
+            </div>""", unsafe_allow_html=True)
+            if st.button("Use Template", key=f"tmpl_{i}", use_container_width=True):
+                st.session_state.pipeline_steps = [
+                    {"agent":s["agent"],"instruction":s["instruction"],"provider":s["provider"],"model":s["model"]}
+                    for s in tmpl["steps"]
+                ]
+                st.success(f"Template '{tmpl['name']}' loaded → go to Pipelines → Run")
+
     # Free API guide
-    st.markdown("<div class='stitle'>Free APIs — Get Started Today</div>", unsafe_allow_html=True)
+    st.markdown("<div class='stitle'>Free APIs — Start for $0</div>", unsafe_allow_html=True)
     st.markdown("""
     <div class='card'>
-      <div style='color:#e0e0ff;font-size:13px;font-weight:600;margin-bottom:10px'>🎁 Providers with generous free tiers</div>
-      <table style='width:100%;font-size:12px;color:#9090b8;border-collapse:collapse'>
-        <tr style='border-bottom:1px solid #1a1a30'>
-          <td style='padding:7px 10px'><strong style='color:#d0d0f0'>⚡ Groq</strong></td>
-          <td style='padding:7px 10px'>Free tier — fast inference, Llama 3, Mixtral</td>
-          <td style='padding:7px 10px'><a href='https://console.groq.com/keys' target='_blank' style='color:#5555cc'>Get key →</a></td>
+      <table style='width:100%;font-size:11px;border-collapse:collapse'>
+        <tr style='border-bottom:1px solid #101028'>
+          <td style='padding:6px 8px;color:#d0d0f0;font-weight:600'>⚡ Groq</td>
+          <td style='padding:6px 8px;color:#505080'>Llama 3.3 70B, Mixtral — ultra fast, generous free tier</td>
+          <td style='padding:6px 8px'><a href='https://console.groq.com/keys' target='_blank' style='color:#4444cc'>Get key →</a></td>
         </tr>
-        <tr style='border-bottom:1px solid #1a1a30'>
-          <td style='padding:7px 10px'><strong style='color:#d0d0f0'>🌐 OpenRouter</strong></td>
-          <td style='padding:7px 10px'>Free models — Llama 3.3, Gemma, DeepSeek-R1, Mistral</td>
-          <td style='padding:7px 10px'><a href='https://openrouter.ai/keys' target='_blank' style='color:#5555cc'>Get key →</a></td>
+        <tr style='border-bottom:1px solid #101028'>
+          <td style='padding:6px 8px;color:#d0d0f0;font-weight:600'>🌐 OpenRouter</td>
+          <td style='padding:6px 8px;color:#505080'>Llama 3.3, DeepSeek-R1, Gemma, Mistral — all free models</td>
+          <td style='padding:6px 8px'><a href='https://openrouter.ai/keys' target='_blank' style='color:#4444cc'>Get key →</a></td>
         </tr>
         <tr>
-          <td style='padding:7px 10px'><strong style='color:#d0d0f0'>🔵 Gemini</strong></td>
-          <td style='padding:7px 10px'>Free tier — Gemini Flash 2.0, 1.5 Flash</td>
-          <td style='padding:7px 10px'><a href='https://aistudio.google.com/app/apikey' target='_blank' style='color:#5555cc'>Get key →</a></td>
+          <td style='padding:6px 8px;color:#d0d0f0;font-weight:600'>🔵 Gemini</td>
+          <td style='padding:6px 8px;color:#505080'>Flash 2.0, 1.5 Flash — Google free tier</td>
+          <td style='padding:6px 8px'><a href='https://aistudio.google.com/app/apikey' target='_blank' style='color:#4444cc'>Get key →</a></td>
         </tr>
       </table>
     </div>""", unsafe_allow_html=True)
@@ -666,9 +884,11 @@ def page_agents():
     with left:
         st.markdown("<div class='stitle'>Select Agent</div>", unsafe_allow_html=True)
         for aid, agent in AGENTS.items():
-            field = agent.get("api_key_field")
+            field = agent.get("key_field")
             ok    = (field is None) or bool(st.session_state.api_keys.get(field, ""))
             dot   = "🟢" if ok else "🟡"
+            msgs  = len(st.session_state.chat_histories.get(aid, []))
+            badge = f" <sup style='font-size:9px;color:#4444cc'>{msgs//2}</sup>" if msgs > 0 else ""
             is_active = st.session_state.active_agent == aid
             if st.button(
                 f"{agent['icon']} {agent['name']} {dot}",
@@ -678,72 +898,121 @@ def page_agents():
                 st.session_state.active_agent = aid
                 st.rerun()
 
-        # Provider info box
+        # Token budget
+        st.markdown("<div class='stitle'>Token Budget</div>", unsafe_allow_html=True)
+        budget    = st.number_input("Budget (tokens)", min_value=1000, max_value=1_000_000,
+                                     value=st.session_state.get("token_budget", 100_000),
+                                     step=10_000, label_visibility="collapsed")
+        st.session_state.token_budget = budget
+        used      = st.session_state.stats["total_tokens"]
+        pct       = min(100, int(used / budget * 100)) if budget else 0
+        bar_color = "#26c96e" if pct < 60 else ("#f0a020" if pct < 85 else "#ff4444")
+        st.markdown(f"""
+        <div style='font-size:10px;color:#303060;margin-bottom:4px'>{used:,} / {budget:,} tokens used ({pct}%)</div>
+        <div class='budget-bar'><div class='budget-fill' style='width:{pct}%;background:{bar_color}'></div></div>
+        """, unsafe_allow_html=True)
+
+        # Active provider badge
         prov = PROVIDERS[st.session_state.active_provider]
         st.markdown(f"""
-        <div style='margin-top:14px;padding:10px 14px;background:#0d0d22;
-                    border:1px solid #1a1a30;border-radius:10px;font-size:11px'>
-          <div style='color:#404060;margin-bottom:4px'>Current LLM</div>
-          <span class='provider-badge {prov['badge_class']}'>{prov['icon']} {prov['name']}</span>
-          <div style='color:#303050;margin-top:4px;font-family:monospace;font-size:10px'>
-            {st.session_state.active_model}
-          </div>
+        <div style='margin-top:12px;padding:8px 10px;background:#0b0b1e;border:1px solid #121230;border-radius:8px;'>
+          <div style='font-size:9px;color:#303060;margin-bottom:3px'>ACTIVE LLM</div>
+          <span class='pbadge {prov["badge"]}'>{prov["icon"]} {prov["name"]}</span>
+          <div style='font-size:9px;color:#202048;margin-top:3px;font-family:monospace'>{st.session_state.active_model[:32]}</div>
         </div>""", unsafe_allow_html=True)
 
     with right:
         aid   = st.session_state.active_agent
         agent = AGENTS[aid]
-        field = agent.get("api_key_field")
+        field = agent.get("key_field")
         ok    = (field is None) or bool(st.session_state.api_keys.get(field, ""))
 
-        pill_html = f"<span class='pill pill-green'>● Ready</span>" if ok else \
-                    f"<span class='pill pill-yellow'>⚠ Key needed</span>"
+        # Header
         st.markdown(f"""
-        <div class='card' style='display:flex;align-items:center;gap:14px'>
-          <div style='font-size:32px'>{agent['icon']}</div>
+        <div class='card card-active' style='display:flex;align-items:center;gap:12px;padding:14px 16px'>
+          <div style='font-size:30px'>{agent['icon']}</div>
           <div style='flex:1'>
-            <div style='font-size:16px;font-weight:700;color:#e0e0ff'>{agent['name']}</div>
-            <div style='font-size:11px;color:#505070;margin-top:2px'>{agent['description']}</div>
+            <div style='font-size:15px;font-weight:700;color:#e0e0ff'>{agent['name']}</div>
+            <div style='font-size:11px;color:#404068;margin-top:1px'>{agent['description']}</div>
           </div>
-          <div>{pill_html}</div>
+          {'<span class="pill pill-green">● Ready</span>' if ok else '<span class="pill pill-yellow">⚠ Key needed</span>'}
         </div>""", unsafe_allow_html=True)
 
-        if not ok:
-            st.info(f"Add the `{field}` key in **API Config** to enable live actions for {agent['name']}.")
+        # Quick prompts
+        st.markdown("<div class='stitle'>Quick Prompts</div>", unsafe_allow_html=True)
+        qp_cols = st.columns(len(agent["quick_prompts"]))
+        for qi, qp in enumerate(agent["quick_prompts"]):
+            with qp_cols[qi]:
+                if st.button(qp[:28], key=f"qp_{aid}_{qi}", use_container_width=True):
+                    st.session_state[f"_prefill_{aid}"] = qp
+                    st.rerun()
 
+        # Capabilities
         with st.expander("📋 Capabilities"):
             for cap in agent["capabilities"]:
-                st.markdown(f"• {cap}")
+                st.markdown(f"  • {cap}")
 
+        # Chat
         if aid not in st.session_state.chat_histories:
             st.session_state.chat_histories[aid] = []
         history = st.session_state.chat_histories[aid]
 
-        st.markdown("<div class='stitle'>Conversation</div>", unsafe_allow_html=True)
-        if not history:
+        # Meta strip for last call
+        last_meta = next((m.get("meta") for m in reversed(history) if m.get("meta")), None)
+        if last_meta:
+            fb_badge = f" <span class='pill pill-yellow'>↩ fallback: {last_meta['provider']}</span>" if last_meta.get("fallback_used") else ""
+            retry_badge = f" <span class='pill pill-yellow'>↻ {last_meta['attempts']} attempts</span>" if last_meta.get("attempts", 1) > 1 else ""
             st.markdown(f"""
-            <div style='text-align:center;padding:32px 0;color:#202040'>
-              <div style='font-size:36px'>{agent['icon']}</div>
-              <div style='margin-top:8px'>Ask {agent['name']} anything…</div>
+            <div class='metric-strip'>
+              <div class='metric-item'><span>{last_meta.get('latency_ms',0)}ms</span>Latency</div>
+              <div class='metric-item'><span>{last_meta.get('tokens',0):,}</span>Tokens</div>
+              <div class='metric-item'><span>{last_meta.get('attempts',1)}</span>Attempts</div>
+              <div class='metric-item'><span style='font-size:11px'>{last_meta.get('provider','')}</span>Provider</div>
             </div>""", unsafe_allow_html=True)
-        else:
-            chat_container = st.container()
-            with chat_container:
-                for msg in history:
-                    if msg["role"] == "user":
-                        st.markdown(f"<div class='bubble-u'>{msg['content']}</div>", unsafe_allow_html=True)
-                    elif msg["role"] == "assistant":
-                        st.markdown(f"<div class='bubble-a'>{msg['content']}</div>", unsafe_allow_html=True)
-                    elif msg["role"] == "tool":
-                        st.markdown(f"<div class='bubble-t'>🔧 {msg['content']}</div>", unsafe_allow_html=True)
 
-        _, clr_col = st.columns([6, 1])
-        with clr_col:
-            if st.button("🗑 Clear", key=f"clr_{aid}"):
+        # Render chat
+        if history:
+            for msg in history:
+                if msg["role"] == "user":
+                    st.markdown(f"<div class='bubble-u'>{msg['content']}</div>", unsafe_allow_html=True)
+                elif msg["role"] == "assistant":
+                    st.markdown(f"<div class='bubble-a'>{msg['content']}</div>", unsafe_allow_html=True)
+                elif msg["role"] == "tool":
+                    cls = "bubble-tool"
+                    if "retry" in msg["content"].lower(): cls = "bubble-retry"
+                    if "error" in msg["content"].lower(): cls = "bubble-err"
+                    st.markdown(f"<div class='{cls}'>{msg['content']}</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style='text-align:center;padding:28px 0;color:#181838;border:1px dashed #121228;border-radius:12px'>
+              <div style='font-size:32px'>{agent['icon']}</div>
+              <div style='margin-top:8px;font-size:13px'>Ask {agent['name']} anything…</div>
+              <div style='margin-top:4px;font-size:10px;color:#141430'>Use quick prompts above or type below</div>
+            </div>""", unsafe_allow_html=True)
+
+        # Toolbar row
+        t1, t2, t3, t4 = st.columns([1, 1, 1, 4])
+        with t1:
+            if st.button("🗑 Clear", key=f"clr_{aid}", use_container_width=True):
                 st.session_state.chat_histories[aid] = []
                 st.rerun()
+        with t2:
+            if st.button("📥 Export", key=f"exp_{aid}", use_container_width=True):
+                if history:
+                    txt = "\n\n".join(f"[{m['role'].upper()}]\n{m['content']}" for m in history if m["role"] in ("user","assistant"))
+                    st.download_button("⬇ Download", txt, f"{aid}_chat.txt", "text/plain", key=f"dl_{aid}")
+        with t3:
+            if st.button("📌 Pin", key=f"pin_{aid}", use_container_width=True):
+                pins = st.session_state.pinned_agents
+                if aid in pins: pins.remove(aid)
+                else: pins.append(aid)
 
+        # Input — check for prefilled prompt
+        prefill = st.session_state.pop(f"_prefill_{aid}", "")
         user_input = st.chat_input(f"Message {agent['name']}…", key=f"ci_{aid}")
+        if prefill and not user_input:
+            user_input = prefill
+
         if user_input:
             _send_agent_message(aid, agent, user_input)
 
@@ -751,43 +1020,57 @@ def page_agents():
 def _send_agent_message(aid, agent, user_input):
     history = st.session_state.chat_histories.setdefault(aid, [])
     history.append({"role": "user", "content": user_input})
-    add_log(agent["name"], "user_message", user_input)
-    cmd_log("info", f"─── Agent: {agent['name']} ──────────────────────────")
-    cmd_log("data", f"  User: {user_input[:80]}")
 
-    # Check for real GitHub action first
-    if agent.get("real_action") == "github_query":
-        real_result = real_github_query(user_input)
-        if real_result:
-            cmd_log("success", f"  ✓ Real GitHub API data fetched")
-            history.append({"role": "tool", "content": "Real GitHub API call executed"})
-            history.append({"role": "assistant", "content": real_result})
+    # Add to prompt history
+    ph = st.session_state.prompt_history
+    if user_input not in ph:
+        ph.insert(0, user_input)
+        st.session_state.prompt_history = ph[:20]
+
+    add_log(agent["name"], "user_message", user_input[:80])
+    cmd_log("info", f"─── Agent: {agent['name']} ─────────────────────────────────")
+    cmd_log("info", f"  Q: {user_input[:80]}")
+
+    # Real GitHub action check
+    if agent.get("key_field") == "github":
+        real = github_real(user_input)
+        if real:
+            history.append({"role": "tool", "content": "✓ Live GitHub API data fetched"})
+            history.append({"role": "assistant", "content": real, "meta": {"provider":"github_api","tokens":0,"latency_ms":0,"attempts":1,"fallback_used":False}})
             add_log(agent["name"], "tool_use", "GitHub API")
             st.rerun()
             return
 
-    # Check provider key
     provider = st.session_state.active_provider
-    prov_key = st.session_state.api_keys.get(provider, "")
-    if not prov_key:
-        msg = f"⚠️ No API key for **{PROVIDERS[provider]['name']}**. Add it in **API Config**."
-        history.append({"role": "assistant", "content": msg})
-        cmd_log("error", f"  No key for provider: {provider}")
-        st.rerun()
-        return
+    if not st.session_state.api_keys.get(provider, ""):
+        # Try any available provider
+        for fb in st.session_state.fallback_chain:
+            if st.session_state.api_keys.get(fb, ""):
+                provider = fb
+                break
+        else:
+            msg = f"⚠️ No API keys configured. Add at least one in **API Config** → start free with Groq or OpenRouter."
+            history.append({"role": "assistant", "content": msg})
+            st.rerun()
+            return
 
-    msgs_for_api = [{"role": m["role"], "content": m["content"]}
-                    for m in history if m["role"] in ("user", "assistant")]
+    msgs = [{"role":m["role"],"content":m["content"]}
+            for m in history if m["role"] in ("user","assistant")]
 
     with st.spinner(f"{agent['icon']} Calling {PROVIDERS[provider]['name']}…"):
-        text, err = call_llm(msgs_for_api, system_prompt=agent["system_prompt"])
+        text, err, meta = call_llm(msgs, system_prompt=agent["system_prompt"])
 
     if err:
-        history.append({"role": "assistant", "content": f"❌ Error: {err}"})
+        history.append({"role": "tool",      "content": f"✗ Error: {err[:120]}"})
+        history.append({"role": "assistant",  "content": f"I ran into an error: {err[:200]}"})
         add_log(agent["name"], "error", err)
     else:
-        history.append({"role": "assistant", "content": text or "✅ Done."})
-        add_log(agent["name"], "assistant_reply", (text or "")[:100])
+        if meta.get("fallback_used"):
+            history.append({"role": "tool", "content": f"↩ Fallback used: {meta['provider']} (after {meta['attempts']} attempts)"})
+        elif meta.get("attempts", 1) > 1:
+            history.append({"role": "tool", "content": f"↻ Succeeded after {meta['attempts']} retries"})
+        history.append({"role": "assistant", "content": text or "✅ Done.", "meta": meta})
+        add_log(agent["name"], "assistant_reply", (text or "")[:80])
 
     st.rerun()
 
@@ -796,153 +1079,134 @@ def _send_agent_message(aid, agent, user_input):
 # PAGE: PIPELINES
 # ─────────────────────────────────────────────────────────────────────────────
 def page_pipelines():
-    st.markdown("## 🔗 Pipeline Maker")
-    st.markdown("<p style='margin-bottom:16px'>Chain agents across providers — each step's output feeds the next.</p>",
+    st.markdown("## 🔗 Pipelines")
+    st.markdown("<p style='margin-bottom:14px;font-size:13px'>Chain agents — each step's output feeds the next. Each step can use a different provider.</p>",
                 unsafe_allow_html=True)
 
-    tab_build, tab_run, tab_saved = st.tabs(["🏗  Build", "▶  Run", "📂  Saved"])
+    tab_build, tab_run, tab_saved, tab_templates = st.tabs(["🏗 Build","▶ Run","📂 Saved","✨ Templates"])
+
+    # ── TEMPLATES ─────────────────────────────────────────────────────────
+    with tab_templates:
+        for i, tmpl in enumerate(PIPELINE_TEMPLATES):
+            with st.expander(f"{tmpl['icon']} **{tmpl['name']}** — {tmpl['desc']}"):
+                # Show steps
+                flow = ""
+                for j, step in enumerate(tmpl["steps"]):
+                    a    = AGENTS.get(step["agent"], {})
+                    prov = PROVIDERS.get(step["provider"], {})
+                    flow += f"<div class='pnode'><div style='font-size:18px'>{a.get('icon','?')}</div><div style='font-size:10px;color:#a0a0c0'>{a.get('name','?')}</div><div style='font-size:9px;color:#4444bb'>{prov.get('icon','')} {step['provider']}</div></div>"
+                    if j < len(tmpl["steps"])-1: flow += "<span class='parrow'>→</span>"
+                st.markdown(f"<div style='display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin:8px 0'>{flow}</div>", unsafe_allow_html=True)
+                if st.button(f"Load Template", key=f"load_tmpl_{i}", type="primary"):
+                    st.session_state.pipeline_steps = [dict(s) for s in tmpl["steps"]]
+                    st.success(f"Template loaded → go to Build tab")
 
     # ── BUILD ─────────────────────────────────────────────────────────────
     with tab_build:
-        c1, c2 = st.columns([2, 1])
-        with c1:
-            pipe_name = st.text_input("Pipeline name", placeholder="e.g. Research → Write → Review")
-        with c2:
-            pipe_desc = st.text_input("Description", placeholder="What does it do?")
+        c1, c2 = st.columns([2,1])
+        with c1: pipe_name = st.text_input("Pipeline name", placeholder="Research → Write → Deploy")
+        with c2: pipe_desc = st.text_input("Description",   placeholder="What does it do?")
 
-        st.markdown("<div class='stitle'>Add Steps</div>", unsafe_allow_html=True)
-        a_col, p_col, m_col, b_col, c_col = st.columns([2, 2, 2, 3, 1])
-        agent_choices = {aid: f"{a['icon']} {a['name']}" for aid, a in AGENTS.items()}
-        with a_col:
-            new_agent = st.selectbox("Agent", list(agent_choices.keys()),
-                                     format_func=lambda x: agent_choices[x],
-                                     label_visibility="collapsed")
-        with p_col:
-            new_provider = st.selectbox("Provider", list(PROVIDERS.keys()),
-                                        format_func=lambda x: f"{PROVIDERS[x]['icon']} {PROVIDERS[x]['name']}",
-                                        label_visibility="collapsed")
-        with m_col:
-            step_models = PROVIDERS[new_provider]["models"]
-            new_model   = st.selectbox("Model", step_models, label_visibility="collapsed")
-        with b_col:
-            new_instr = st.text_input("Instruction", placeholder="e.g. Summarise the results…",
-                                       label_visibility="collapsed")
-        with c_col:
+        # Add step row
+        st.markdown("<div class='stitle'>Add Step</div>", unsafe_allow_html=True)
+        sa, sp, sm, si, sb = st.columns([2,2,2,3,1])
+        with sa: new_ag = st.selectbox("Agent",    list(AGENTS.keys()), format_func=lambda x: f"{AGENTS[x]['icon']} {AGENTS[x]['name']}", label_visibility="collapsed")
+        with sp: new_pv = st.selectbox("Provider", list(PROVIDERS.keys()), format_func=lambda x: f"{PROVIDERS[x]['icon']} {PROVIDERS[x]['name']}", label_visibility="collapsed")
+        with sm: new_md = st.selectbox("Model",    PROVIDERS[new_pv]["models"], label_visibility="collapsed")
+        with si: new_in = st.text_input("Instruction", placeholder="What should this agent do?", label_visibility="collapsed")
+        with sb:
             if st.button("➕", use_container_width=True):
-                st.session_state.pipeline_steps.append({
-                    "agent": new_agent, "instruction": new_instr,
-                    "provider": new_provider, "model": new_model
-                })
+                st.session_state.pipeline_steps.append({"agent":new_ag,"provider":new_pv,"model":new_md,"instruction":new_in})
                 st.rerun()
 
         steps = st.session_state.pipeline_steps
         if not steps:
-            st.markdown("""
-            <div style='border:1px dashed #1a1a38;border-radius:14px;padding:32px;
-                        text-align:center;color:#202040;margin:12px 0'>
-                Add agents above to build your pipeline ↑
-            </div>""", unsafe_allow_html=True)
+            st.markdown("<div style='border:1px dashed #141430;border-radius:10px;padding:28px;text-align:center;color:#181838;margin:10px 0'>Add steps above to build your pipeline ↑</div>", unsafe_allow_html=True)
         else:
+            # Flow diagram
             flow = ""
             for i, step in enumerate(steps):
                 a    = AGENTS.get(step["agent"], {})
-                prov = PROVIDERS.get(step.get("provider", "anthropic"), {})
-                flow += (f"<div class='pnode'>"
-                         f"<div style='font-size:20px'>{a.get('icon','?')}</div>"
-                         f"<div style='font-size:10px;color:#d0d0f0;margin-top:2px'>{a.get('name','?')}</div>"
-                         f"<div style='font-size:9px;color:#5555cc'>{prov.get('icon','')} {step.get('provider','')}</div>"
-                         f"</div>")
-                if i < len(steps) - 1:
-                    flow += "<span class='parrow'>→</span>"
-            st.markdown(f"<div style='margin:14px 0;display:flex;align-items:center;flex-wrap:wrap;gap:4px'>{flow}</div>",
-                        unsafe_allow_html=True)
+                prov = PROVIDERS.get(step.get("provider","anthropic"), {})
+                instr_snip = f"<div style='font-size:8px;color:#4444bb;margin-top:2px'>{step['instruction'][:20]}…</div>" if step.get("instruction") else ""
+                flow += f"<div class='pnode'><div style='font-size:16px'>{a.get('icon','?')}</div><div style='font-size:9px;color:#a0a0c0'>{a.get('name','?')}</div><div style='font-size:8px;color:#4444bb'>{prov.get('icon','')} {step.get('provider','')}</div>{instr_snip}</div>"
+                if i < len(steps)-1: flow += "<span class='parrow'>→</span>"
+            st.markdown(f"<div style='display:flex;align-items:center;gap:3px;flex-wrap:wrap;margin:12px 0 10px;'>{flow}</div>", unsafe_allow_html=True)
 
+            # Edit rows
             for i, step in enumerate(steps):
-                a = AGENTS.get(step["agent"], {})
-                sc1, sc2, sc3, sc4, sc5 = st.columns([2, 3, 2, 1, 1])
-                with sc1: st.markdown(f"**{i+1}. {a.get('icon','')} {a.get('name','?')}**")
-                with sc2:
-                    steps[i]["instruction"] = st.text_input(
-                        "instr", value=step["instruction"], key=f"si_{i}",
-                        label_visibility="collapsed", placeholder="Instruction…")
-                with sc3:
-                    pm = PROVIDERS.get(step.get("provider", "anthropic"), {})
-                    st.markdown(f"<div style='padding-top:8px;font-size:10px;color:#5555cc'>{pm.get('icon','')} {step.get('model','')[:25]}</div>", unsafe_allow_html=True)
-                with sc4:
-                    if i > 0 and st.button("⬆", key=f"up_{i}"):
-                        steps[i], steps[i-1] = steps[i-1], steps[i]; st.rerun()
-                with sc5:
-                    if st.button("🗑", key=f"rm_{i}"):
-                        steps.pop(i); st.rerun()
+                a = AGENTS.get(step["agent"],{})
+                ec1, ec2, ec3, ec4, ec5, ec6 = st.columns([2,3,2,1,1,1])
+                with ec1: st.markdown(f"<div style='padding-top:8px;font-size:12px;font-weight:600;color:#c0c0e0'>{a.get('icon','')} {a.get('name','?')}</div>", unsafe_allow_html=True)
+                with ec2: steps[i]["instruction"] = st.text_input("instr", value=step.get("instruction",""), key=f"si_{i}", label_visibility="collapsed", placeholder="Instruction…")
+                with ec3:
+                    pm = PROVIDERS.get(step.get("provider","anthropic"),{})
+                    st.markdown(f"<div style='padding-top:8px;font-size:9px;color:#4444bb'>{pm.get('icon','')} {step.get('model','')[:24]}</div>", unsafe_allow_html=True)
+                with ec4:
+                    if i > 0 and st.button("⬆", key=f"up_{i}"): steps[i],steps[i-1]=steps[i-1],steps[i]; st.rerun()
+                with ec5:
+                    if i < len(steps)-1 and st.button("⬇", key=f"dn_{i}"): steps[i],steps[i+1]=steps[i+1],steps[i]; st.rerun()
+                with ec6:
+                    if st.button("🗑", key=f"rm_{i}"): steps.pop(i); st.rerun()
             st.session_state.pipeline_steps = steps
 
-        _, sv_col = st.columns([4, 1])
-        with sv_col:
+        _, sc = st.columns([4,1])
+        with sc:
             if st.button("💾 Save", type="primary", use_container_width=True):
-                if not pipe_name:
-                    st.error("Give it a name.")
-                elif not steps:
-                    st.error("Add at least one step.")
+                if not pipe_name: st.error("Give it a name.")
+                elif not steps:   st.error("Add at least one step.")
                 else:
                     st.session_state.pipelines.append({
-                        "name": pipe_name, "description": pipe_desc,
-                        "steps": [s["agent"]       for s in steps],
-                        "instructions": [s["instruction"] for s in steps],
-                        "providers": [s.get("provider", "anthropic") for s in steps],
-                        "models":    [s.get("model", PROVIDERS["anthropic"]["models"][0]) for s in steps],
+                        "name":pipe_name,"description":pipe_desc,
+                        "steps":      [s["agent"]       for s in steps],
+                        "instructions":[s["instruction"]  for s in steps],
+                        "providers":  [s.get("provider","anthropic") for s in steps],
+                        "models":     [s.get("model","") for s in steps],
                     })
                     st.session_state.pipeline_steps = []
-                    st.success(f"✅ Pipeline **{pipe_name}** saved!")
+                    st.success(f"✅ Saved '{pipe_name}'")
                     st.rerun()
 
-    # ── RUN ──────────────────────────────────────────────────────────────
+    # ── RUN ───────────────────────────────────────────────────────────────
     with tab_run:
         pipes = st.session_state.pipelines
         if not pipes:
-            st.info("No pipelines saved yet. Build one in the Build tab.")
+            st.info("No pipelines saved yet — Build one or load a Template.")
             return
 
-        selected_name = st.selectbox("Select pipeline", [p["name"] for p in pipes])
+        selected_name = st.selectbox("Pipeline", [p["name"] for p in pipes])
         pipeline      = next(p for p in pipes if p["name"] == selected_name)
+        providers_list = pipeline.get("providers", ["anthropic"]*len(pipeline["steps"]))
+        models_list    = pipeline.get("models",    [""]*len(pipeline["steps"]))
 
-        # Show flow
-        flow2 = ""
+        # Flow with status
+        states = st.session_state.get(f"_pipe_states_{selected_name}", {})
+        flow2  = ""
         for i, aid in enumerate(pipeline["steps"]):
             a    = AGENTS.get(aid, {})
-            pid  = pipeline.get("providers", ["anthropic"] * len(pipeline["steps"]))[i]
+            pid  = providers_list[i] if i < len(providers_list) else "anthropic"
             prov = PROVIDERS.get(pid, {})
-            flow2 += (f"<div class='pnode'>"
-                      f"<div style='font-size:18px'>{a.get('icon','?')}</div>"
-                      f"<div style='font-size:10px;color:#d0d0f0;margin-top:2px'>{a.get('name','?')}</div>"
-                      f"<div style='font-size:9px;color:#5555cc'>{prov.get('icon','')} {pid}</div>"
-                      f"</div>")
-            if i < len(pipeline["steps"]) - 1:
-                flow2 += "<span class='parrow'>→</span>"
-        st.markdown(f"<div style='margin:10px 0 18px;display:flex;align-items:center;flex-wrap:wrap;gap:4px'>{flow2}</div>",
-                    unsafe_allow_html=True)
+            st8  = states.get(i, "idle")
+            node_cls = {"running":"pnode pnode-run","done":"pnode pnode-done","error":"pnode pnode-err"}.get(st8,"pnode")
+            flow2 += f"<div class='{node_cls}'><div style='font-size:16px'>{a.get('icon','?')}</div><div style='font-size:9px;color:#a0a0c0'>{a.get('name','?')}</div><div style='font-size:8px;color:#4444bb'>{prov.get('icon','')} {pid}</div></div>"
+            if i < len(pipeline["steps"])-1: flow2 += "<span class='parrow'>→</span>"
+        st.markdown(f"<div style='display:flex;align-items:center;gap:3px;flex-wrap:wrap;margin:10px 0 14px;'>{flow2}</div>", unsafe_allow_html=True)
 
-        initial = st.text_area("Initial input / prompt", height=100,
-                                placeholder="What should the first agent work on?")
+        initial   = st.text_area("Initial input / prompt", height=90,
+                                  placeholder="What should the pipeline work on?")
+        on_fail   = st.radio("On step failure", ["Continue with error context","Stop pipeline"], horizontal=True)
 
-        # Live command center placeholder inside pipeline run
-        cmd_placeholder = st.empty()
+        run_col, _ = st.columns([1,3])
+        with run_col:
+            run_btn = st.button("▶ Run Pipeline", type="primary", use_container_width=True)
 
-        if st.button("▶  Run Pipeline", type="primary"):
-            if not initial:
-                st.error("Provide an input."); return
+        if run_btn:
+            if not initial: st.error("Provide an input."); return
 
-            providers_list = pipeline.get("providers", ["anthropic"] * len(pipeline["steps"]))
-            models_list    = pipeline.get("models",    [PROVIDERS["anthropic"]["models"][0]] * len(pipeline["steps"]))
-
-            # Validate at least one provider key exists
-            for i, pid in enumerate(providers_list):
-                if not st.session_state.api_keys.get(pid, ""):
-                    st.warning(f"⚠ Step {i+1} uses **{PROVIDERS[pid]['name']}** — no key set. Add it in API Config.")
-
-            context = initial
-            results = []
-            prog    = st.progress(0)
-
+            results   = []
+            context   = initial
+            prog      = st.progress(0, text="Starting…")
+            step_phs  = [st.empty() for _ in pipeline["steps"]]
             cmd_log("info", f"══ PIPELINE START: {selected_name} ({len(pipeline['steps'])} steps) ══")
             add_log(f"Pipeline:{selected_name}", "pipeline_start", f"{len(pipeline['steps'])} steps")
 
@@ -950,82 +1214,99 @@ def page_pipelines():
                 agent  = AGENTS.get(aid, {})
                 instr  = pipeline["instructions"][idx] if idx < len(pipeline["instructions"]) else ""
                 pid    = providers_list[idx] if idx < len(providers_list) else "anthropic"
-                model  = models_list[idx]    if idx < len(models_list)    else PROVIDERS[pid]["models"][0]
+                model  = models_list[idx]    if idx < len(models_list)    else PROVIDERS.get(pid,{}).get("models",[""])[0]
                 prompt = f"{instr}\n\n{context}" if instr else context
 
-                cmd_log("info", f"── Step {idx+1}/{len(pipeline['steps'])}: {agent.get('name')} [{pid}/{model}]")
-                cmd_log("data", f"   Input: {context[:80]}{'…' if len(context)>80 else ''}")
+                prog.progress((idx) / len(pipeline["steps"]), text=f"Step {idx+1}: {agent.get('name')}…")
+                step_phs[idx].markdown(f"<div class='alert alert-info'>⏳ Step {idx+1}: {agent.get('icon','')} {agent.get('name','?')} running…</div>", unsafe_allow_html=True)
 
-                with st.spinner(f"Step {idx+1}: {agent.get('name')} ({PROVIDERS[pid]['name']})…"):
-                    text, err = call_llm(
-                        [{"role": "user", "content": prompt}],
-                        system_prompt=agent.get("system_prompt", ""),
-                        provider=pid, model=model
-                    )
+                cmd_log("info", f"── Step {idx+1}: {agent.get('name')} [{pid}/{model}]")
+                t0 = time.time()
+                text, err, meta = call_llm(
+                    [{"role":"user","content":prompt}],
+                    system_prompt=agent.get("system_prompt",""),
+                    provider=pid, model=model,
+                )
 
                 if err:
-                    results.append({"step": idx+1, "agent": agent.get("name"), "output": err,
-                                    "ok": False, "provider": pid})
-                    context = f"[Error from step {idx+1}: {err}]"
-                    cmd_log("error", f"   ✗ Step {idx+1} FAILED: {err}")
+                    step_phs[idx].markdown(f"<div class='alert alert-err'>✗ Step {idx+1}: {agent.get('name')} — {err[:100]}</div>", unsafe_allow_html=True)
+                    results.append({"step":idx+1,"agent":agent.get("name"),"output":err,"ok":False,"meta":meta})
+                    context = f"[Step {idx+1} errored: {err}]"
+                    if on_fail == "Stop pipeline":
+                        prog.progress(1.0, text="Pipeline stopped due to error.")
+                        break
                 else:
-                    results.append({"step": idx+1, "agent": agent.get("name"), "output": text,
-                                    "ok": True, "provider": pid})
+                    elapsed = int((time.time()-t0)*1000)
+                    fb_note = f" (fallback: {meta['provider']})" if meta.get("fallback_used") else ""
+                    step_phs[idx].markdown(
+                        f"<div class='alert alert-ok'>✓ Step {idx+1}: {agent.get('name')}{fb_note} — {elapsed}ms · {meta.get('tokens',0)} tok</div>",
+                        unsafe_allow_html=True
+                    )
+                    results.append({"step":idx+1,"agent":agent.get("name"),"output":text,"ok":True,"meta":meta})
                     context = text
-                    cmd_log("success", f"   ✓ Step {idx+1} OK | {len(text)} chars output")
 
-                prog.progress((idx+1) / len(pipeline["steps"]))
+                prog.progress((idx+1) / len(pipeline["steps"]), text=f"Step {idx+1} done.")
 
-                # Update live cmd panel
-                _render_cmd_inline(cmd_placeholder)
-
-            cmd_log("success", f"══ PIPELINE COMPLETE: {len(results)} steps ══")
+            cmd_log("ok", f"══ PIPELINE DONE: {len(results)} steps ══")
             add_log(f"Pipeline:{selected_name}", "pipeline_done", f"{len(results)} steps")
+            prog.progress(1.0, text="Pipeline complete!")
 
             st.markdown("---")
             st.markdown("<div class='stitle'>Results</div>", unsafe_allow_html=True)
+
+            # Summary row
+            ok_count  = sum(1 for r in results if r["ok"])
+            total_tok = sum(r["meta"].get("tokens",0) for r in results)
+            total_ms  = sum(r["meta"].get("latency_ms",0) for r in results)
+            st.markdown(f"""
+            <div class='metric-strip'>
+              <div class='metric-item'><span>{ok_count}/{len(results)}</span>Steps OK</div>
+              <div class='metric-item'><span>{total_tok:,}</span>Total Tokens</div>
+              <div class='metric-item'><span>{total_ms:,}ms</span>Total Time</div>
+            </div>""", unsafe_allow_html=True)
+
             for r in results:
                 icon = "✅" if r["ok"] else "❌"
-                pid  = r.get("provider", "")
-                prov = PROVIDERS.get(pid, {})
-                with st.expander(f"{icon} Step {r['step']}: {r['agent']}  {prov.get('icon','')} {pid}", expanded=(r is results[-1])):
+                meta = r.get("meta", {})
+                hdr  = f"{icon} Step {r['step']}: {r['agent']} | {meta.get('provider','')} | {meta.get('latency_ms',0)}ms | {meta.get('tokens',0)} tok"
+                with st.expander(hdr, expanded=(r is results[-1])):
                     st.markdown(f"<div class='bubble-a'>{r['output']}</div>", unsafe_allow_html=True)
-            st.success("Pipeline complete!")
+                    if meta.get("fallback_used"):
+                        st.markdown(f"<div class='bubble-retry'>↩ Fallback used — originally tried {meta.get('provider')}, attempts={meta.get('attempts')}</div>", unsafe_allow_html=True)
 
-    # ── SAVED ────────────────────────────────────────────────────────────
+            # Export final output
+            final_out = results[-1]["output"] if results else ""
+            if final_out:
+                st.download_button("📥 Export final output", final_out, f"{selected_name}_output.txt","text/plain")
+
+    # ── SAVED ─────────────────────────────────────────────────────────────
     with tab_saved:
         if not st.session_state.pipelines:
-            st.info("No saved pipelines.")
-            return
+            st.info("No saved pipelines."); return
         for i, p in enumerate(st.session_state.pipelines):
-            names = " → ".join(AGENTS.get(s, {}).get("name", s) for s in p["steps"])
-            with st.expander(f"🔗 **{p['name']}** — {names}"):
-                st.markdown(f"**Description:** {p.get('description','—')}")
-                st.markdown(f"**Steps:** {len(p['steps'])}")
+            flow = " → ".join(AGENTS.get(s,{}).get("name",s) for s in p["steps"])
+            with st.expander(f"🔗 **{p['name']}** — {flow}"):
+                st.markdown(f"*{p.get('description','—')}* · {len(p['steps'])} steps")
                 for j, aid in enumerate(p["steps"]):
-                    a   = AGENTS.get(aid, {})
-                    pid = p.get("providers", ["?"] * len(p["steps"]))[j]
-                    mod = p.get("models",    ["?"] * len(p["steps"]))[j]
+                    a   = AGENTS.get(aid,{})
+                    pid = p.get("providers",[])[j] if j < len(p.get("providers",[])) else "?"
+                    mod = p.get("models",[])[j]    if j < len(p.get("models",[]))    else "?"
                     st.markdown(f"  {j+1}. {a.get('icon','')} **{a.get('name',aid)}** — `{pid}` / `{mod}`")
-                if st.button(f"🗑 Delete", key=f"del_pipe_{i}"):
-                    st.session_state.pipelines.pop(i); st.rerun()
-
-
-def _render_cmd_inline(placeholder):
-    """Render last 30 cmd_log lines into a placeholder."""
-    lines = st.session_state.cmd_log[-30:]
-    html  = "<div class='terminal'>"
-    for entry in lines:
-        cls = {"cmd": "cmd-line", "success": "cmd-success", "error": "cmd-error",
-               "info": "cmd-info", "data": "cmd-data"}.get(entry["level"], "cmd-data")
-        msg  = entry["msg"].replace("<","&lt;").replace(">","&gt;")
-        data = entry["data"].replace("<","&lt;").replace(">","&gt;")
-        html += f"<div><span class='cmd-time'>[{entry['ts']}]</span> <span class='{cls}'>{msg}</span>"
-        if data:
-            html += f" <span class='cmd-data'>{data}</span>"
-        html += "</div>"
-    html += "</div>"
-    placeholder.markdown(html, unsafe_allow_html=True)
+                c1,c2 = st.columns(2)
+                with c1:
+                    if st.button("▶ Quick Run", key=f"qr_{i}"):
+                        st.session_state.pipeline_steps = [
+                            {"agent":a,"instruction":ins,"provider":pv,"model":md}
+                            for a,ins,pv,md in zip(
+                                p["steps"], p.get("instructions",[""]*len(p["steps"])),
+                                p.get("providers",["anthropic"]*len(p["steps"])),
+                                p.get("models",[""]          *len(p["steps"])),
+                            )
+                        ]
+                        st.rerun()
+                with c2:
+                    if st.button("🗑 Delete", key=f"delpipe_{i}"):
+                        st.session_state.pipelines.pop(i); st.rerun()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1033,91 +1314,217 @@ def _render_cmd_inline(placeholder):
 # ─────────────────────────────────────────────────────────────────────────────
 def page_api_config():
     st.markdown("## 🔑 API Configuration")
-    st.markdown("<p style='margin-bottom:12px'>Keys live in session memory only — never written to disk.</p>",
-                unsafe_allow_html=True)
 
-    tab_providers, tab_services = st.tabs(["🤖 LLM Providers", "🔧 Service Keys"])
+    tab_llm, tab_svc, tab_test = st.tabs(["🤖 LLM Providers","🔧 Service Keys","🔍 Test All"])
 
-    # ── LLM PROVIDERS ────────────────────────────────────────────────────
-    with tab_providers:
+    with tab_llm:
         st.markdown("""
-        <div class='card' style='border-color:#2ecc7133'>
-          <div style='color:#2ecc71;font-weight:700;font-size:13px;margin-bottom:6px'>🎁 Free API Keys Available</div>
-          <div style='font-size:12px;color:#7070a0'>
-            <b style='color:#d0d0f0'>Groq</b> — console.groq.com/keys — Free, fast, Llama 3.3/Mixtral<br>
-            <b style='color:#d0d0f0'>OpenRouter</b> — openrouter.ai/keys — Free models: Llama 3.3, DeepSeek-R1, Gemma, Mistral<br>
-            <b style='color:#d0d0f0'>Gemini</b> — aistudio.google.com/app/apikey — Free Flash 2.0/1.5 tier
-          </div>
+        <div class='alert alert-ok' style='margin-bottom:14px'>
+          🎁 <strong>Free options:</strong> Groq · OpenRouter · Gemini all have free tiers — start without paying anything.
         </div>""", unsafe_allow_html=True)
-
         for pid, prov in PROVIDERS.items():
-            field = prov["key_field"]
-            free_tag = " 🆓 Free tier" if prov["free_tier"] else ""
+            free_tag = " <span class='pill pill-green'>🆓 Free tier</span>" if prov["free"] else ""
             st.markdown(f"<div class='stitle'>{prov['icon']} {prov['name']}{free_tag}</div>", unsafe_allow_html=True)
-
-            col_i, col_d = st.columns([5, 1])
-            with col_i:
-                new_val = st.text_input(
-                    prov["name"], value=st.session_state.api_keys.get(field, ""),
-                    type="password", placeholder=prov["hint"],
-                    key=f"apik_{field}",
-                )
-                if new_val != st.session_state.api_keys.get(field, ""):
-                    st.session_state.api_keys[field] = new_val
-                    cmd_log("info", f"API key updated: {field}")
-            with col_d:
-                st.markdown(f"<div style='padding-top:28px'><a href='{prov['docs']}' target='_blank' "
-                            "style='color:#5555cc;font-size:12px'>📖 Docs</a></div>", unsafe_allow_html=True)
-
-            if st.session_state.api_keys.get(field, ""):
-                if st.button(f"🔍 Test {prov['name']}", key=f"test_{field}"):
+            c1, c2, c3 = st.columns([4,1,1])
+            with c1:
+                new_val = st.text_input(prov["name"], value=st.session_state.api_keys.get(pid,""),
+                                        type="password", placeholder=prov["hint"],
+                                        key=f"apik_{pid}")
+                if new_val != st.session_state.api_keys.get(pid,""):
+                    st.session_state.api_keys[pid] = new_val
+                    cmd_log("info", f"Key updated: {pid}")
+            with c2:
+                st.markdown(f"<div style='padding-top:28px'><a href='{prov['docs']}' target='_blank' style='color:#4444cc;font-size:11px'>📖 Docs</a></div>", unsafe_allow_html=True)
+            with c3:
+                if st.session_state.api_keys.get(pid,"") and st.button("Test", key=f"test_{pid}"):
                     with st.spinner("Testing…"):
-                        test_text, test_err = call_llm(
-                            [{"role": "user", "content": "Say 'Connection successful' and your model name."}],
-                            provider=pid,
-                            model=prov["models"][0],
+                        text, err, meta = call_llm(
+                            [{"role":"user","content":"Reply with just: OK, model name."}],
+                            provider=pid, model=prov["models"][0]
                         )
-                    if test_err:
-                        st.error(f"❌ {test_err}")
-                    else:
-                        st.success(f"✅ {test_text[:120]}")
+                    if err: st.error(f"❌ {err[:100]}")
+                    else:   st.success(f"✅ {text[:80]} ({meta['latency_ms']}ms)")
 
-            st.markdown(f"""
-            <div style='margin:4px 0 12px;'>
-              <span style='font-size:10px;color:#404060'>Available models: </span>
-              {"  ".join(f"<code style='font-size:10px;background:#0d0d22;color:#8080c0;padding:1px 5px;border-radius:4px'>{m}</code>" for m in prov['models'])}
-            </div>""", unsafe_allow_html=True)
+            # Models chip list
+            chips = "  ".join(f"<code style='font-size:9px;background:#0b0b20;color:#6060a0;padding:1px 5px;border-radius:4px'>{m}</code>" for m in prov["models"])
+            st.markdown(f"<div style='margin-bottom:12px;line-height:2'>{chips}</div>", unsafe_allow_html=True)
 
-    # ── SERVICE KEYS ─────────────────────────────────────────────────────
-    with tab_services:
-        service_fields = {k: v for k, v in API_FIELDS.items() if v.get("provider") is None}
-        for field, meta in service_fields.items():
-            col_i, col_d = st.columns([5, 1])
-            with col_i:
-                new_val = st.text_input(
-                    meta["label"], value=st.session_state.api_keys.get(field, ""),
-                    type="password", placeholder=meta["hint"],
-                    key=f"apik_svc_{field}",
-                )
-                if new_val != st.session_state.api_keys.get(field, ""):
-                    st.session_state.api_keys[field] = new_val
-            with col_d:
-                st.markdown(f"<div style='padding-top:28px'><a href='{meta['docs']}' target='_blank' "
-                            "style='color:#5555cc;font-size:12px'>📖 Docs</a></div>", unsafe_allow_html=True)
+    with tab_svc:
+        svc_fields = {"github":{"label":"GitHub Token","hint":"ghp_… or github_pat_…","docs":"https://github.com/settings/tokens"},
+                      "gmail_oauth":{"label":"Gmail OAuth JSON","hint":"Paste GCP JSON…","docs":"https://console.cloud.google.com/"},
+                      "google_calendar":{"label":"Google Calendar Key","hint":"AIza…","docs":"https://console.cloud.google.com/"}}
+        for field, meta in svc_fields.items():
+            st.markdown(f"<div class='stitle'>{meta['label']}</div>", unsafe_allow_html=True)
+            c1, c2 = st.columns([5,1])
+            with c1:
+                v = st.text_input(meta["label"], value=st.session_state.api_keys.get(field,""),
+                                  type="password", placeholder=meta["hint"], key=f"svc_{field}")
+                if v != st.session_state.api_keys.get(field,""):
+                    st.session_state.api_keys[field] = v
+            with c2:
+                st.markdown(f"<div style='padding-top:28px'><a href='{meta['docs']}' target='_blank' style='color:#4444cc;font-size:11px'>📖</a></div>", unsafe_allow_html=True)
 
-        # Test GitHub
-        if st.session_state.api_keys.get("github", ""):
+        # Live GitHub test
+        if st.session_state.api_keys.get("github",""):
             if st.button("🔍 Test GitHub Token"):
-                gh_key = st.session_state.api_keys["github"]
                 r = requests.get("https://api.github.com/user",
-                                  headers={"Authorization": f"token {gh_key}"}, timeout=10)
+                                  headers={"Authorization":f"token {st.session_state.api_keys['github']}"}, timeout=10)
                 if r.status_code == 200:
                     u = r.json()
-                    st.success(f"✅ Connected as **{u['login']}** ({u.get('name','—')}) — {u['public_repos']} public repos")
-                    cmd_log("success", f"GitHub token valid: {u['login']}")
+                    st.success(f"✅ Connected as **{u['login']}** — {u['public_repos']} repos")
+                    cmd_log("ok", f"GitHub: authenticated as {u['login']}")
                 else:
-                    st.error(f"❌ HTTP {r.status_code}: {r.text[:100]}")
-                    cmd_log("error", f"GitHub token invalid: HTTP {r.status_code}")
+                    st.error(f"❌ HTTP {r.status_code}")
+
+    with tab_test:
+        st.markdown("<div class='stitle'>Test All Configured Providers</div>", unsafe_allow_html=True)
+        if st.button("🔍 Run All Tests", type="primary"):
+            for pid, prov in PROVIDERS.items():
+                if st.session_state.api_keys.get(pid,""):
+                    with st.spinner(f"Testing {prov['name']}…"):
+                        text, err, meta = call_llm(
+                            [{"role":"user","content":"Say: OK"}],
+                            provider=pid, model=prov["models"][0]
+                        )
+                    if err: st.markdown(f"<div class='alert alert-err'>❌ {prov['icon']} {prov['name']}: {err[:80]}</div>", unsafe_allow_html=True)
+                    else:   st.markdown(f"<div class='alert alert-ok'>✅ {prov['icon']} {prov['name']}: {text[:60]} ({meta['latency_ms']}ms)</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<div class='alert' style='background:#0e0e20;border:1px solid #181838;color:#303060'>⚪ {prov['icon']} {prov['name']}: no key</div>", unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PAGE: RESILIENCE
+# ─────────────────────────────────────────────────────────────────────────────
+def page_resilience():
+    st.markdown("## 🛡 Resilience & Reliability")
+    st.markdown("<p style='margin-bottom:16px;font-size:13px'>Configure retry logic, circuit breakers, and auto-fallback to keep your agents running.</p>", unsafe_allow_html=True)
+
+    tab_config, tab_status, tab_history = st.tabs(["⚙ Config","📊 Live Status","📈 Call History"])
+
+    with tab_config:
+        st.markdown("<div class='stitle'>Retry Policy</div>", unsafe_allow_html=True)
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.session_state.retry_max   = st.slider("Max retries", 1, 6, st.session_state.retry_max)
+        with c2:
+            st.session_state.retry_delay = st.slider("Base retry delay (s)", 0.5, 5.0, st.session_state.retry_delay, 0.5)
+        with c3:
+            st.markdown(f"""
+            <div class='alert alert-info' style='margin-top:8px'>
+              Exponential backoff: delay × 2^(attempt-1)<br>
+              Max wait ≈ {st.session_state.retry_delay * (2**(st.session_state.retry_max-1)):.1f}s
+            </div>""", unsafe_allow_html=True)
+
+        st.markdown("<div class='stitle'>Circuit Breaker</div>", unsafe_allow_html=True)
+        c4, c5 = st.columns(2)
+        with c4:
+            st.session_state.circuit_threshold = st.slider("Failures before open", 2, 10, st.session_state.circuit_threshold)
+        with c5:
+            st.session_state.circuit_timeout   = st.slider("Cooldown period (s)", 10, 300, st.session_state.circuit_timeout, 10)
+
+        st.markdown(f"""
+        <div class='alert alert-info'>
+          After <b>{st.session_state.circuit_threshold}</b> consecutive failures, that provider is paused for
+          <b>{st.session_state.circuit_timeout}s</b>. Requests auto-reroute to fallback providers.
+        </div>""", unsafe_allow_html=True)
+
+        st.markdown("<div class='stitle'>Auto-Fallback Chain</div>", unsafe_allow_html=True)
+        st.session_state.auto_fallback = st.toggle("Enable auto-fallback", st.session_state.auto_fallback)
+
+        if st.session_state.auto_fallback:
+            st.markdown("<p style='font-size:12px'>Providers are tried in this order when the primary fails:</p>", unsafe_allow_html=True)
+            chain = st.session_state.fallback_chain
+            for i, pid in enumerate(chain):
+                prov    = PROVIDERS.get(pid, {})
+                has_key = bool(st.session_state.api_keys.get(pid, ""))
+                status  = "✅ Key set" if has_key else "⚪ No key"
+                c1, c2 = st.columns([3,1])
+                with c1:
+                    st.markdown(f"<div style='padding:7px 12px;background:#0b0b1e;border:1px solid #141430;border-radius:7px;font-size:12px;margin-bottom:4px'>"
+                                f"<b>{i+1}.</b> {prov.get('icon','')} {prov.get('name',pid)}</div>", unsafe_allow_html=True)
+                with c2:
+                    st.markdown(f"<div style='padding-top:6px;font-size:10px;color:{'#26c96e' if has_key else '#303060'}'>{status}</div>", unsafe_allow_html=True)
+
+    with tab_status:
+        st.markdown("<div class='stitle'>Circuit Breaker Status</div>", unsafe_allow_html=True)
+        any_open = False
+        for pid, prov in PROVIDERS.items():
+            cb        = st.session_state.circuit_breakers.get(pid, {})
+            is_open   = cb.get("open_until") and time.time() < cb["open_until"]
+            failures  = cb.get("failures", 0)
+            remaining = max(0, int(cb.get("open_until", 0) - time.time())) if is_open else 0
+            pct       = min(100, int(failures / st.session_state.circuit_threshold * 100))
+
+            if is_open: any_open = True
+
+            status_icon  = "🔴" if is_open else ("🟡" if failures > 0 else "🟢")
+            status_label = f"OPEN — {remaining}s remaining" if is_open else (f"{failures} failure(s)" if failures else "Healthy")
+            bar_color    = "#ff4444" if is_open else ("#f0a020" if failures else "#26c96e")
+
+            st.markdown(f"""
+            <div class='card' style='margin-bottom:8px'>
+              <div style='display:flex;align-items:center;justify-content:space-between'>
+                <div style='display:flex;align-items:center;gap:8px'>
+                  <span style='font-size:16px'>{status_icon}</span>
+                  <div>
+                    <div style='font-size:12px;font-weight:600;color:#d0d0f0'>{prov['icon']} {prov['name']}</div>
+                    <div style='font-size:10px;color:#404060'>{status_label}</div>
+                  </div>
+                </div>
+                <div style='text-align:right;font-size:10px;color:#303050'>
+                  {st.session_state.stats["provider_calls"].get(pid,0)} calls ·
+                  {st.session_state.stats["provider_errors"].get(pid,0)} errors
+                </div>
+              </div>
+              <div class='health-bar' style='margin-top:8px'>
+                <div class='health-fill' style='width:{pct}%;background:{bar_color}'></div>
+              </div>
+            </div>""", unsafe_allow_html=True)
+
+        if any_open:
+            if st.button("↺ Reset All Circuit Breakers"):
+                st.session_state.circuit_breakers = {}
+                st.success("All circuits reset.")
+                st.rerun()
+
+    with tab_history:
+        s = st.session_state.stats
+        if not s["latencies"]:
+            st.info("No calls yet. Run an agent to see call history.")
+            return
+
+        # Latency histogram (text-based)
+        lats    = s["latencies"]
+        buckets = [0, 500, 1000, 2000, 5000, 10000, 99999]
+        labels  = ["<500ms","500ms-1s","1-2s","2-5s","5-10s","10s+"]
+        counts  = [0]*len(labels)
+        for l in lats:
+            for i in range(len(buckets)-1):
+                if buckets[i] <= l < buckets[i+1]:
+                    counts[i] += 1; break
+
+        st.markdown("<div class='stitle'>Latency Distribution</div>", unsafe_allow_html=True)
+        max_c = max(counts) or 1
+        for lbl, cnt in zip(labels, counts):
+            bar_w = int(cnt / max_c * 100)
+            st.markdown(f"""
+            <div style='display:flex;align-items:center;gap:8px;margin-bottom:4px'>
+              <div style='width:70px;font-size:10px;color:#505080;text-align:right'>{lbl}</div>
+              <div style='flex:1;background:#0b0b1e;border-radius:3px;height:14px'>
+                <div style='width:{bar_w}%;background:#4444cc;height:100%;border-radius:3px'></div>
+              </div>
+              <div style='width:30px;font-size:10px;color:#505080'>{cnt}</div>
+            </div>""", unsafe_allow_html=True)
+
+        st.markdown(f"""
+        <div class='metric-strip' style='margin-top:12px'>
+          <div class='metric-item'><span>{len(lats)}</span>Calls</div>
+          <div class='metric-item'><span>{min(lats)}ms</span>Min</div>
+          <div class='metric-item'><span>{max(lats)}ms</span>Max</div>
+          <div class='metric-item'><span>{sum(lats)//len(lats)}ms</span>Avg</div>
+          <div class='metric-item'><span>{sorted(lats)[len(lats)//2]}ms</span>P50</div>
+          <div class='metric-item'><span>{sorted(lats)[int(len(lats)*.95)]}ms</span>P95</div>
+        </div>""", unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1125,54 +1532,55 @@ def page_api_config():
 # ─────────────────────────────────────────────────────────────────────────────
 def page_command_center():
     st.markdown("## 🖥 Command Center")
-    st.markdown("<p style='margin-bottom:16px'>Real-time execution log — every API call, HTTP request, and response.</p>",
-                unsafe_allow_html=True)
+    st.markdown("<p style='margin-bottom:14px;font-size:13px'>Real-time execution log — every API call, HTTP request, retry, and circuit event.</p>", unsafe_allow_html=True)
 
-    hc, ac, bc = st.columns([4, 1, 1])
-    with hc:
-        st.markdown(f"<p style='margin:0'>{len(st.session_state.cmd_log)} log entries</p>", unsafe_allow_html=True)
-    with ac:
-        if st.button("🔄 Refresh", use_container_width=True):
-            st.rerun()
-    with bc:
+    # Controls
+    c1, c2, c3, c4 = st.columns([2,1,1,1])
+    with c1:
+        filter_levels = st.multiselect("Levels", ["cmd","ok","err","warn","info","retry","circuit"],
+                                        default=["cmd","ok","err","warn","info","retry","circuit"],
+                                        label_visibility="collapsed")
+    with c2: search_term = st.text_input("Search", placeholder="Filter…", label_visibility="collapsed")
+    with c3:
+        if st.button("🔄 Refresh", use_container_width=True): st.rerun()
+    with c4:
         if st.button("🗑 Clear", use_container_width=True):
-            st.session_state.cmd_log = []
-            st.rerun()
+            st.session_state.cmd_log = []; st.rerun()
 
-    # Filter
-    levels = st.multiselect("Filter levels", ["cmd", "success", "error", "info", "data"],
-                             default=["cmd", "success", "error", "info", "data"])
+    logs = [e for e in reversed(st.session_state.cmd_log)
+            if e["level"] in filter_levels
+            and (not search_term or search_term.lower() in e["msg"].lower())]
 
-    logs_to_show = [e for e in reversed(st.session_state.cmd_log) if e["level"] in levels]
-
-    if not logs_to_show:
-        st.markdown("""
-        <div class='terminal' style='text-align:center;padding:40px;color:#202040'>
-            No log entries yet. Run an agent or pipeline to see execution here.
-        </div>""", unsafe_allow_html=True)
+    if not logs:
+        st.markdown("<div class='terminal' style='text-align:center;padding:36px;color:#181838'>No log entries. Run an agent or pipeline to see execution here.</div>", unsafe_allow_html=True)
         return
 
+    # Stats row
+    total   = len(st.session_state.cmd_log)
+    errs    = sum(1 for e in st.session_state.cmd_log if e["level"] == "err")
+    retries = sum(1 for e in st.session_state.cmd_log if e["level"] == "retry")
+    oks     = sum(1 for e in st.session_state.cmd_log if e["level"] == "ok")
+    st.markdown(f"""
+    <div class='metric-strip'>
+      <div class='metric-item'><span>{total}</span>Total Lines</div>
+      <div class='metric-item'><span style='color:#26c96e'>{oks}</span>Successes</div>
+      <div class='metric-item'><span style='color:#ff4444'>{errs}</span>Errors</div>
+      <div class='metric-item'><span style='color:#ff8844'>{retries}</span>Retries</div>
+    </div>""", unsafe_allow_html=True)
+
+    CLS = {"cmd":"t-cmd","ok":"t-ok","err":"t-err","warn":"t-warn",
+           "info":"t-info","retry":"t-retry","circuit":"t-circuit"}
     html = "<div class='terminal'>"
-    for entry in logs_to_show:
-        cls = {"cmd": "cmd-line", "success": "cmd-success", "error": "cmd-error",
-               "info": "cmd-info", "data": "cmd-data"}.get(entry["level"], "cmd-data")
-        msg  = entry["msg"].replace("<","&lt;").replace(">","&gt;")
-        data = entry["data"].replace("<","&lt;").replace(">","&gt;")
-        html += (f'<div><span class="cmd-time">[{entry["ts"]}]</span> '
-                 f'<span class="{cls}">{msg}</span>')
-        if data:
-            html += f' <span class="cmd-data">{data}</span>'
-        html += "</div>"
+    for entry in logs:
+        cls = CLS.get(entry["level"], "t-info")
+        msg = entry["msg"].replace("<","&lt;").replace(">","&gt;")
+        html += f'<div><span class="t-dim">[{entry["ts"]}]</span> <span class="{cls}">{msg}</span></div>'
     html += "</div>"
     st.markdown(html, unsafe_allow_html=True)
 
-    # Export
-    if st.button("📥 Export log as text"):
-        log_text = "\n".join(
-            f"[{e['ts']}] [{e['level'].upper():7s}] {e['msg']} {e['data']}"
-            for e in st.session_state.cmd_log
-        )
-        st.download_button("⬇ Download log.txt", log_text, file_name="agentos_log.txt", mime="text/plain")
+    if st.button("📥 Export log"):
+        log_text = "\n".join(f"[{e['ts']}] [{e['level']:7s}] {e['msg']}" for e in st.session_state.cmd_log)
+        st.download_button("⬇ Download", log_text, "agentos_log.txt", "text/plain")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1182,42 +1590,33 @@ def page_logs():
     st.markdown("## 📋 Activity Logs")
     logs = st.session_state.logs
 
-    hc, bc = st.columns([5, 1])
-    with hc:
-        st.markdown(f"<p>{len(logs)} events this session</p>", unsafe_allow_html=True)
+    hc, bc = st.columns([5,1])
+    with hc: st.markdown(f"<p>{len(logs)} events</p>", unsafe_allow_html=True)
     with bc:
         if st.button("🗑 Clear", use_container_width=True):
             st.session_state.logs = []; st.rerun()
 
     if not logs:
-        st.markdown("""
-        <div style='border:1px dashed #1a1a38;border-radius:14px;padding:48px;text-align:center;color:#202040'>
-            No activity yet.
-        </div>""", unsafe_allow_html=True)
+        st.markdown("<div style='border:1px dashed #10102a;border-radius:12px;padding:40px;text-align:center;color:#181830'>No activity yet.</div>", unsafe_allow_html=True)
         return
 
-    ACTION_COLORS = {
-        "user_message":   "#5555cc", "assistant_reply": "#2ecc71", "tool_use":      "#f0a500",
-        "pipeline_start": "#3db4ff", "pipeline_done":   "#2ecc71", "error":         "#ff5252",
-    }
+    COLORS = {"user_message":"#4444cc","assistant_reply":"#26c96e","tool_use":"#f0a020",
+               "pipeline_start":"#38aaee","pipeline_done":"#26c96e","error":"#ff4444","circuit_open":"#ff44aa"}
     for i, log in enumerate(reversed(logs)):
-        color = ACTION_COLORS.get(log.get("action", ""), "#404060")
+        color = COLORS.get(log.get("action",""), "#303050")
         num   = len(logs) - i
-        ts    = log.get("ts", "")
         st.markdown(f"""
-        <div style='background:#0d0d22;border-left:3px solid {color};border:1px solid #14142a;
-                    border-left-width:3px;border-left-color:{color};border-radius:0 10px 10px 0;
-                    padding:10px 14px;margin-bottom:6px'>
+        <div style='background:#0b0b1e;border-left:3px solid {color};border:1px solid #101028;
+                    border-left-color:{color};border-radius:0 9px 9px 0;
+                    padding:9px 12px;margin-bottom:5px'>
           <div style='display:flex;justify-content:space-between'>
-            <span style='color:#d8d8f0;font-weight:600;font-size:12px'>{log.get('agent','System')}</span>
-            <span style='color:#202040;font-size:10px'>#{num} {ts}</span>
+            <span style='color:#d0d0f0;font-weight:600;font-size:12px'>{log.get('agent','System')}</span>
+            <span style='color:#181830;font-size:10px'>#{num} {log.get('ts','')}</span>
           </div>
-          <div style='margin-top:4px;display:flex;align-items:center;gap:8px'>
-            <span style='background:{color}22;color:{color};padding:2px 8px;border-radius:99px;
-                         font-size:9px;font-weight:700;letter-spacing:.5px'>
-              {log.get('action','').upper()}
-            </span>
-            <span style='color:#606080;font-size:11px'>{str(log.get('content',''))[:120]}</span>
+          <div style='margin-top:3px;display:flex;align-items:center;gap:7px'>
+            <span style='background:{color}22;color:{color};padding:1px 7px;border-radius:99px;
+                         font-size:9px;font-weight:700;letter-spacing:.5px'>{log.get('action','').upper()}</span>
+            <span style='color:#505070;font-size:11px'>{str(log.get('content',''))[:110]}</span>
           </div>
         </div>""", unsafe_allow_html=True)
 
@@ -1228,60 +1627,83 @@ def page_logs():
 def page_settings():
     st.markdown("## ⚙️ Settings")
 
-    st.markdown("<div class='stitle'>Default LLM Provider</div>", unsafe_allow_html=True)
-    c1, c2 = st.columns(2)
-    with c1:
-        provider_choices = {pid: f"{p['icon']} {p['name']}" for pid, p in PROVIDERS.items()}
-        chosen = st.selectbox("Default Provider", list(provider_choices.keys()),
-                              format_func=lambda x: provider_choices[x],
-                              index=list(PROVIDERS.keys()).index(st.session_state.active_provider))
-        if chosen != st.session_state.active_provider:
-            st.session_state.active_provider = chosen
-            st.session_state.active_model    = PROVIDERS[chosen]["models"][0]
-    with c2:
-        models = PROVIDERS[st.session_state.active_provider]["models"]
-        cur    = st.session_state.active_model if st.session_state.active_model in models else models[0]
-        st.session_state.active_model = st.selectbox("Default Model", models, index=models.index(cur))
+    tab_gen, tab_ux, tab_danger = st.tabs(["🔧 General","🎨 UX","⚠ Danger Zone"])
 
-    st.markdown("<div class='stitle'>Generation Parameters</div>", unsafe_allow_html=True)
-    p1, p2 = st.columns(2)
-    with p1:
-        st.session_state.max_tokens   = st.slider("Max tokens", 256, 8192, st.session_state.max_tokens, 256)
-    with p2:
-        st.session_state.temperature  = st.slider("Temperature", 0.0, 2.0, st.session_state.temperature, 0.05)
+    with tab_gen:
+        st.markdown("<div class='stitle'>Default Provider & Model</div>", unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            chosen = st.selectbox("Default Provider", list(PROVIDERS.keys()),
+                                  format_func=lambda x: f"{PROVIDERS[x]['icon']} {PROVIDERS[x]['name']}",
+                                  index=list(PROVIDERS.keys()).index(st.session_state.active_provider))
+            if chosen != st.session_state.active_provider:
+                st.session_state.active_provider = chosen
+                st.session_state.active_model    = PROVIDERS[chosen]["models"][0]
+        with c2:
+            models = PROVIDERS[st.session_state.active_provider]["models"]
+            cur    = st.session_state.active_model if st.session_state.active_model in models else models[0]
+            st.session_state.active_model = st.selectbox("Default Model", models, index=models.index(cur))
 
-    st.markdown("<div class='stitle'>Danger Zone</div>", unsafe_allow_html=True)
-    dc1, dc2, dc3, dc4 = st.columns(4)
-    with dc1:
-        if st.button("🗑 Chats", use_container_width=True):
-            st.session_state.chat_histories = {}; st.success("Chats cleared.")
-    with dc2:
-        if st.button("🗑 Pipelines", use_container_width=True):
-            st.session_state.pipelines = [];     st.success("Pipelines cleared.")
-    with dc3:
-        if st.button("🗑 Logs", use_container_width=True):
-            st.session_state.logs = [];          st.success("Logs cleared.")
-    with dc4:
-        if st.button("🗑 Cmd Log", use_container_width=True):
-            st.session_state.cmd_log = [];       st.success("Cmd log cleared.")
+        st.markdown("<div class='stitle'>Generation Parameters</div>", unsafe_allow_html=True)
+        p1, p2 = st.columns(2)
+        with p1: st.session_state.max_tokens   = st.slider("Max tokens",   256, 8192, st.session_state.max_tokens,   256)
+        with p2: st.session_state.temperature  = st.slider("Temperature",  0.0, 2.0,  st.session_state.temperature,  0.05)
 
-    st.markdown("<div class='stitle'>About</div>", unsafe_allow_html=True)
+        st.markdown("<div class='stitle'>Prompt History</div>", unsafe_allow_html=True)
+        ph = st.session_state.prompt_history
+        if ph:
+            for i, p in enumerate(ph[:10]):
+                st.markdown(f"`{i+1}.` {p[:80]}")
+        else:
+            st.markdown("<p>No prompt history yet.</p>", unsafe_allow_html=True)
+
+    with tab_ux:
+        st.session_state.compact_mode = st.toggle("Compact mode (denser layout)", st.session_state.compact_mode)
+        st.session_state.show_cmd_panel = st.toggle("Show Command Center panel in sidebar", st.session_state.show_cmd_panel)
+        st.markdown("<div class='stitle'>Keyboard Shortcuts (reference)</div>", unsafe_allow_html=True)
+        shortcuts = [
+            ("Enter",         "Send message in agent chat"),
+            ("Ctrl + L",      "Clear current chat"),
+            ("Ctrl + Enter",  "Send in text area"),
+        ]
+        for key, desc in shortcuts:
+            st.markdown(f"<span class='kbd'>{key}</span>  <span style='font-size:12px;color:#505080'>{desc}</span>", unsafe_allow_html=True)
+
+    with tab_danger:
+        dc1, dc2, dc3, dc4 = st.columns(4)
+        with dc1:
+            if st.button("🗑 All Chats",    use_container_width=True): st.session_state.chat_histories = {}; st.success("Cleared.")
+        with dc2:
+            if st.button("🗑 Pipelines",    use_container_width=True): st.session_state.pipelines = []; st.success("Cleared.")
+        with dc3:
+            if st.button("🗑 All Logs",     use_container_width=True): st.session_state.logs = []; st.session_state.cmd_log = []; st.success("Cleared.")
+        with dc4:
+            if st.button("🗑 Reset Stats",  use_container_width=True):
+                st.session_state.stats = {"total_calls":0,"total_tokens":0,"total_errors":0,
+                                           "provider_calls":{},"provider_errors":{},"latencies":[]}
+                st.success("Stats reset.")
+        if st.button("⚠️ RESET EVERYTHING", type="secondary", use_container_width=True):
+            for k, v in _defaults.items():
+                import copy; st.session_state[k] = copy.deepcopy(v)
+            st.success("Full reset done.")
+
     st.markdown("""
-    <div class='card'>
-      <div style='font-size:14px;font-weight:600;color:#e0e0ff;margin-bottom:6px'>AgentOS Pro v3.0</div>
-      <div style='font-size:12px;color:#505070'>Multi-provider AI agent platform.</div>
-      <div style='font-size:12px;color:#505070;margin-top:4px'>Providers: Anthropic · Gemini · Groq · OpenRouter</div>
-      <div style='font-size:12px;color:#505070;margin-top:2px'>Agents: GitHub · Gmail · Calendar · Web Search · Code · Data Analyst · API Connector</div>
+    <div class='card' style='margin-top:14px'>
+      <div style='font-size:13px;font-weight:700;color:#e0e0ff'>AgentOS Pro v4.0</div>
+      <div style='font-size:11px;color:#303060;margin-top:3px'>Multi-provider · Retry + Backoff · Circuit Breaker · Auto-Fallback · Token Budget</div>
+      <div style='font-size:11px;color:#303060'>Providers: Anthropic · Gemini · Groq · OpenRouter</div>
+      <div style='font-size:11px;color:#303060'>Agents: GitHub · Web Search · Code · Data Analyst · Writer · Gmail · API · DevOps</div>
     </div>""", unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ROUTER
 # ─────────────────────────────────────────────────────────────────────────────
-if   "Dashboard"       in nav: page_dashboard()
-elif "Agents"          in nav: page_agents()
-elif "Pipelines"       in nav: page_pipelines()
-elif "API Config"      in nav: page_api_config()
-elif "Command Center"  in nav: page_command_center()
-elif "Logs"            in nav: page_logs()
-elif "Settings"        in nav: page_settings()
+if   "Dashboard"        in nav: page_dashboard()
+elif "Agents"           in nav: page_agents()
+elif "Pipelines"        in nav: page_pipelines()
+elif "API Config"       in nav: page_api_config()
+elif "Resilience"       in nav: page_resilience()
+elif "Command Center"   in nav: page_command_center()
+elif "Logs"             in nav: page_logs()
+elif "Settings"         in nav: page_settings()
