@@ -14,6 +14,11 @@ import requests
 from datetime import datetime, timedelta
 from collections import defaultdict
 
+# ── New feature modules ──────────────────────────────────────────────────────
+from utils.interrupt_controller import init_interrupt_state
+from utils.thought_process       import init_thought_state, render_thought_toggle
+from utils.mid_run_editor        import init_midrun_state
+
 # ─────────────────────────────────────────────────────────────────────────────
 # PAGE CONFIG — must be first
 # ─────────────────────────────────────────────────────────────────────────────
@@ -440,6 +445,11 @@ for _k, _v in _defaults.items():
     if _k not in st.session_state:
         st.session_state[_k] = _v
 
+# Init new feature state
+init_interrupt_state()
+init_thought_state()
+init_midrun_state()
+
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS — logging
 # ─────────────────────────────────────────────────────────────────────────────
@@ -681,7 +691,7 @@ def github_real(msg: str) -> str | None:
 # SIDEBAR
 # ─────────────────────────────────────────────────────────────────────────────
 NAV = ["🏠  Dashboard", "🤖  Agents", "🔗  Pipelines", "🔑  API Config",
-       "🛡  Resilience", "🖥  Command Center", "📋  Logs", "⚙️  Settings"]
+       "🛡  Resilience", "🖥  Command Center", "📋  Logs", "🧠  Thought History", "⚙️  Settings"]
 
 with st.sidebar:
     st.markdown("""
@@ -991,7 +1001,7 @@ def page_agents():
             </div>""", unsafe_allow_html=True)
 
         # Toolbar row
-        t1, t2, t3, t4 = st.columns([1, 1, 1, 4])
+        t1, t2, t3, t4 = st.columns([1, 1, 1, 2])
         with t1:
             if st.button("🗑 Clear", key=f"clr_{aid}", use_container_width=True):
                 st.session_state.chat_histories[aid] = []
@@ -1006,6 +1016,9 @@ def page_agents():
                 pins = st.session_state.pinned_agents
                 if aid in pins: pins.remove(aid)
                 else: pins.append(aid)
+        with t4:
+            from utils.thought_process import render_thought_toggle
+            render_thought_toggle()
 
         # Input — check for prefilled prompt
         prefill = st.session_state.pop(f"_prefill_{aid}", "")
@@ -1057,8 +1070,14 @@ def _send_agent_message(aid, agent, user_input):
     msgs = [{"role":m["role"],"content":m["content"]}
             for m in history if m["role"] in ("user","assistant")]
 
+    # Thought process
+    sys_prompt = agent["system_prompt"]
+    if st.session_state.get("thought_mode_enabled", False):
+        from utils.thought_process import inject_thought_prompt
+        sys_prompt = inject_thought_prompt(sys_prompt)
+
     with st.spinner(f"{agent['icon']} Calling {PROVIDERS[provider]['name']}…"):
-        text, err, meta = call_llm(msgs, system_prompt=agent["system_prompt"])
+        text, err, meta = call_llm(msgs, system_prompt=sys_prompt)
 
     if err:
         history.append({"role": "tool",      "content": f"✗ Error: {err[:120]}"})
@@ -1069,7 +1088,19 @@ def _send_agent_message(aid, agent, user_input):
             history.append({"role": "tool", "content": f"↩ Fallback used: {meta['provider']} (after {meta['attempts']} attempts)"})
         elif meta.get("attempts", 1) > 1:
             history.append({"role": "tool", "content": f"↻ Succeeded after {meta['attempts']} retries"})
-        history.append({"role": "assistant", "content": text or "✅ Done.", "meta": meta})
+
+        # Parse thought if enabled
+        display_text = text or "✅ Done."
+        if st.session_state.get("thought_mode_enabled", False) and text:
+            from utils.thought_process import parse_thought_response, record_thought, render_thought_panel
+            parsed = parse_thought_response(text)
+            if parsed["has_thought"]:
+                display_text = parsed["answer"]
+                record_thought(agent["name"], parsed["thought"], parsed["answer"], parsed["reading_list"])
+                # Store parsed thought for rendering in next cycle
+                history.append({"role": "tool", "content": f"🧠 Thought process captured ({len(parsed['thought'].splitlines())} steps, {len(parsed['reading_list'])} refs)"})
+
+        history.append({"role": "assistant", "content": display_text, "meta": meta})
         add_log(agent["name"], "assistant_reply", (text or "")[:80])
 
     st.rerun()
@@ -1083,7 +1114,7 @@ def page_pipelines():
     st.markdown("<p style='margin-bottom:14px;font-size:13px'>Chain agents — each step's output feeds the next. Each step can use a different provider.</p>",
                 unsafe_allow_html=True)
 
-    tab_build, tab_run, tab_saved, tab_templates = st.tabs(["🏗 Build","▶ Run","📂 Saved","✨ Templates"])
+    tab_build, tab_run, tab_saved, tab_templates = st.tabs(["🏗 Build","▶ Run (Enhanced)","📂 Saved","✨ Templates"])
 
     # ── TEMPLATES ─────────────────────────────────────────────────────────
     with tab_templates:
@@ -1169,115 +1200,11 @@ def page_pipelines():
 
     # ── RUN ───────────────────────────────────────────────────────────────
     with tab_run:
-        pipes = st.session_state.pipelines
-        if not pipes:
-            st.info("No pipelines saved yet — Build one or load a Template.")
-            return
-
-        selected_name = st.selectbox("Pipeline", [p["name"] for p in pipes])
-        pipeline      = next(p for p in pipes if p["name"] == selected_name)
-        providers_list = pipeline.get("providers", ["anthropic"]*len(pipeline["steps"]))
-        models_list    = pipeline.get("models",    [""]*len(pipeline["steps"]))
-
-        # Flow with status
-        states = st.session_state.get(f"_pipe_states_{selected_name}", {})
-        flow2  = ""
-        for i, aid in enumerate(pipeline["steps"]):
-            a    = AGENTS.get(aid, {})
-            pid  = providers_list[i] if i < len(providers_list) else "anthropic"
-            prov = PROVIDERS.get(pid, {})
-            st8  = states.get(i, "idle")
-            node_cls = {"running":"pnode pnode-run","done":"pnode pnode-done","error":"pnode pnode-err"}.get(st8,"pnode")
-            flow2 += f"<div class='{node_cls}'><div style='font-size:16px'>{a.get('icon','?')}</div><div style='font-size:9px;color:#a0a0c0'>{a.get('name','?')}</div><div style='font-size:8px;color:#4444bb'>{prov.get('icon','')} {pid}</div></div>"
-            if i < len(pipeline["steps"])-1: flow2 += "<span class='parrow'>→</span>"
-        st.markdown(f"<div style='display:flex;align-items:center;gap:3px;flex-wrap:wrap;margin:10px 0 14px;'>{flow2}</div>", unsafe_allow_html=True)
-
-        initial   = st.text_area("Initial input / prompt", height=90,
-                                  placeholder="What should the pipeline work on?")
-        on_fail   = st.radio("On step failure", ["Continue with error context","Stop pipeline"], horizontal=True)
-
-        run_col, _ = st.columns([1,3])
-        with run_col:
-            run_btn = st.button("▶ Run Pipeline", type="primary", use_container_width=True)
-
-        if run_btn:
-            if not initial: st.error("Provide an input."); return
-
-            results   = []
-            context   = initial
-            prog      = st.progress(0, text="Starting…")
-            step_phs  = [st.empty() for _ in pipeline["steps"]]
-            cmd_log("info", f"══ PIPELINE START: {selected_name} ({len(pipeline['steps'])} steps) ══")
-            add_log(f"Pipeline:{selected_name}", "pipeline_start", f"{len(pipeline['steps'])} steps")
-
-            for idx, aid in enumerate(pipeline["steps"]):
-                agent  = AGENTS.get(aid, {})
-                instr  = pipeline["instructions"][idx] if idx < len(pipeline["instructions"]) else ""
-                pid    = providers_list[idx] if idx < len(providers_list) else "anthropic"
-                model  = models_list[idx]    if idx < len(models_list)    else PROVIDERS.get(pid,{}).get("models",[""])[0]
-                prompt = f"{instr}\n\n{context}" if instr else context
-
-                prog.progress((idx) / len(pipeline["steps"]), text=f"Step {idx+1}: {agent.get('name')}…")
-                step_phs[idx].markdown(f"<div class='alert alert-info'>⏳ Step {idx+1}: {agent.get('icon','')} {agent.get('name','?')} running…</div>", unsafe_allow_html=True)
-
-                cmd_log("info", f"── Step {idx+1}: {agent.get('name')} [{pid}/{model}]")
-                t0 = time.time()
-                text, err, meta = call_llm(
-                    [{"role":"user","content":prompt}],
-                    system_prompt=agent.get("system_prompt",""),
-                    provider=pid, model=model,
-                )
-
-                if err:
-                    step_phs[idx].markdown(f"<div class='alert alert-err'>✗ Step {idx+1}: {agent.get('name')} — {err[:100]}</div>", unsafe_allow_html=True)
-                    results.append({"step":idx+1,"agent":agent.get("name"),"output":err,"ok":False,"meta":meta})
-                    context = f"[Step {idx+1} errored: {err}]"
-                    if on_fail == "Stop pipeline":
-                        prog.progress(1.0, text="Pipeline stopped due to error.")
-                        break
-                else:
-                    elapsed = int((time.time()-t0)*1000)
-                    fb_note = f" (fallback: {meta['provider']})" if meta.get("fallback_used") else ""
-                    step_phs[idx].markdown(
-                        f"<div class='alert alert-ok'>✓ Step {idx+1}: {agent.get('name')}{fb_note} — {elapsed}ms · {meta.get('tokens',0)} tok</div>",
-                        unsafe_allow_html=True
-                    )
-                    results.append({"step":idx+1,"agent":agent.get("name"),"output":text,"ok":True,"meta":meta})
-                    context = text
-
-                prog.progress((idx+1) / len(pipeline["steps"]), text=f"Step {idx+1} done.")
-
-            cmd_log("ok", f"══ PIPELINE DONE: {len(results)} steps ══")
-            add_log(f"Pipeline:{selected_name}", "pipeline_done", f"{len(results)} steps")
-            prog.progress(1.0, text="Pipeline complete!")
-
-            st.markdown("---")
-            st.markdown("<div class='stitle'>Results</div>", unsafe_allow_html=True)
-
-            # Summary row
-            ok_count  = sum(1 for r in results if r["ok"])
-            total_tok = sum(r["meta"].get("tokens",0) for r in results)
-            total_ms  = sum(r["meta"].get("latency_ms",0) for r in results)
-            st.markdown(f"""
-            <div class='metric-strip'>
-              <div class='metric-item'><span>{ok_count}/{len(results)}</span>Steps OK</div>
-              <div class='metric-item'><span>{total_tok:,}</span>Total Tokens</div>
-              <div class='metric-item'><span>{total_ms:,}ms</span>Total Time</div>
-            </div>""", unsafe_allow_html=True)
-
-            for r in results:
-                icon = "✅" if r["ok"] else "❌"
-                meta = r.get("meta", {})
-                hdr  = f"{icon} Step {r['step']}: {r['agent']} | {meta.get('provider','')} | {meta.get('latency_ms',0)}ms | {meta.get('tokens',0)} tok"
-                with st.expander(hdr, expanded=(r is results[-1])):
-                    st.markdown(f"<div class='bubble-a'>{r['output']}</div>", unsafe_allow_html=True)
-                    if meta.get("fallback_used"):
-                        st.markdown(f"<div class='bubble-retry'>↩ Fallback used — originally tried {meta.get('provider')}, attempts={meta.get('attempts')}</div>", unsafe_allow_html=True)
-
-            # Export final output
-            final_out = results[-1]["output"] if results else ""
-            if final_out:
-                st.download_button("📥 Export final output", final_out, f"{selected_name}_output.txt","text/plain")
+        from pages.pipelines_v2 import render_enhanced_pipeline_run
+        render_enhanced_pipeline_run(
+            AGENTS=AGENTS, PROVIDERS=PROVIDERS,
+            call_llm=call_llm, add_log=add_log, cmd_log=cmd_log,
+        )
 
     # ── SAVED ─────────────────────────────────────────────────────────────
     with tab_saved:
@@ -1706,4 +1633,11 @@ elif "API Config"       in nav: page_api_config()
 elif "Resilience"       in nav: page_resilience()
 elif "Command Center"   in nav: page_command_center()
 elif "Logs"             in nav: page_logs()
+elif "Thought History"  in nav:
+    st.markdown("## 🧠 Thought History")
+    st.markdown("<p style='margin-bottom:14px;font-size:13px'>Step-by-step reasoning traces captured when 'Show thought process' is enabled.</p>", unsafe_allow_html=True)
+    from utils.thought_process import render_thought_history, render_thought_toggle
+    render_thought_toggle()
+    st.markdown("---")
+    render_thought_history()
 elif "Settings"         in nav: page_settings()
