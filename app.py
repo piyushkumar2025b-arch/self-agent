@@ -691,7 +691,9 @@ def github_real(msg: str) -> str | None:
 # SIDEBAR
 # ─────────────────────────────────────────────────────────────────────────────
 NAV = ["🏠  Dashboard", "🤖  Agents", "🔗  Pipelines", "🔑  API Config",
-       "🛡  Resilience", "🖥  Command Center", "📋  Logs", "🧠  Thought History", "⚙️  Settings"]
+       "🛡  Resilience", "🖥  Command Center", "📋  Logs", "🧠  Thought History", "⚙️  Settings",
+       "📚  Prompt Library", "📊  Analytics", "🧠  Memory", "⏱  Scheduler",
+       "🛠️  Tools Tester", "🧪  Model Playground"]
 
 with st.sidebar:
     st.markdown("""
@@ -1641,3 +1643,21 @@ elif "Thought History"  in nav:
     st.markdown("---")
     render_thought_history()
 elif "Settings"         in nav: page_settings()
+elif "Prompt Library"   in nav:
+    from pages.prompt_library import render as render_prompt_library
+    render_prompt_library()
+elif "Analytics"        in nav:
+    from pages.analytics import render as render_analytics
+    render_analytics()
+elif "Memory"           in nav:
+    from pages.memory_viewer import render as render_memory
+    render_memory()
+elif "Scheduler"        in nav:
+    from pages.scheduler import render as render_scheduler
+    render_scheduler()
+elif "Tools Tester"     in nav:
+    from pages.tools_tester import render as render_tools_tester
+    render_tools_tester()
+elif "Model Playground" in nav:
+    from pages.model_playground import render as render_playground
+    render_playground()
