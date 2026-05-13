@@ -187,10 +187,12 @@ button[kind="secondary"]:hover { border-color:#3333aa !important; color:#c0c0ff 
 /* ── Provider badge ── */
 .pbadge { display:inline-flex; align-items:center; gap:4px; padding:2px 8px;
           border-radius:99px; font-size:10px; font-weight:700; letter-spacing:.2px; }
-.pbadge-anthropic { background:#16082a; color:#c070ff; border:1px solid #481878; }
 .pbadge-gemini    { background:#071420; color:#38aaee; border:1px solid #0e3858; }
 .pbadge-groq      { background:#071808; color:#26c96e; border:1px solid #144028; }
 .pbadge-openrouter{ background:#181408; color:#f0c040; border:1px solid #504010; }
+.pbadge-together  { background:#140824; color:#c084fc; border:1px solid #4a1878; }
+.pbadge-cohere    { background:#1a1008; color:#ff8c69; border:1px solid #603020; }
+.pbadge-mistral   { background:#1a0e06; color:#f97316; border:1px solid #602808; }
 
 /* ── Alert banner ── */
 .alert { border-radius:9px; padding:10px 14px; margin:8px 0; font-size:12px; }
@@ -239,27 +241,39 @@ summary { color:#a0a0c8 !important; }
 # PROVIDERS
 # ─────────────────────────────────────────────────────────────────────────────
 PROVIDERS = {
-    "anthropic": {
-        "name": "Claude (Anthropic)", "icon": "🟣", "badge": "pbadge-anthropic",
-        "models": ["claude-sonnet-4-20250514","claude-opus-4-20250514","claude-haiku-4-5-20251001"],
-        "free": False, "docs": "https://console.anthropic.com/", "hint": "sk-ant-api03-…",
+    "groq": {
+        "name": "Groq (Ultra-Fast)", "icon": "⚡", "badge": "pbadge-groq",
+        "models": ["llama-3.3-70b-versatile","llama-3.1-8b-instant","mixtral-8x7b-32768","gemma2-9b-it","llama3-70b-8192"],
+        "free": True, "docs": "https://console.groq.com/keys", "hint": "gsk_…",
     },
     "gemini": {
         "name": "Gemini (Google)", "icon": "🔵", "badge": "pbadge-gemini",
         "models": ["gemini-2.0-flash","gemini-1.5-flash","gemini-1.5-pro","gemini-2.0-flash-exp"],
         "free": True, "docs": "https://aistudio.google.com/app/apikey", "hint": "AIzaSy…",
     },
-    "groq": {
-        "name": "Groq (Ultra-Fast)", "icon": "⚡", "badge": "pbadge-groq",
-        "models": ["llama-3.3-70b-versatile","llama-3.1-8b-instant","mixtral-8x7b-32768","gemma2-9b-it"],
-        "free": True, "docs": "https://console.groq.com/keys", "hint": "gsk_…",
-    },
     "openrouter": {
         "name": "OpenRouter", "icon": "🌐", "badge": "pbadge-openrouter",
         "models": ["meta-llama/llama-3.3-70b-instruct:free","deepseek/deepseek-r1:free",
                    "google/gemma-3-27b-it:free","mistralai/mistral-7b-instruct:free",
-                   "qwen/qwen3-14b:free","nousresearch/hermes-3-llama-3.1-405b:free"],
+                   "qwen/qwen3-14b:free","nousresearch/hermes-3-llama-3.1-405b:free",
+                   "microsoft/phi-3-medium-128k-instruct:free"],
         "free": True, "docs": "https://openrouter.ai/keys", "hint": "sk-or-v1-…",
+    },
+    "together": {
+        "name": "Together AI", "icon": "🤝", "badge": "pbadge-together",
+        "models": ["meta-llama/Llama-3.3-70B-Instruct-Turbo-Free","deepseek-ai/DeepSeek-R1-Distill-Llama-70B-free",
+                   "Qwen/Qwen2.5-72B-Instruct-Turbo","meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo"],
+        "free": True, "docs": "https://api.together.ai/settings/api-keys", "hint": "…",
+    },
+    "cohere": {
+        "name": "Cohere", "icon": "🌊", "badge": "pbadge-cohere",
+        "models": ["command-r-plus","command-r","command-light"],
+        "free": True, "docs": "https://dashboard.cohere.com/api-keys", "hint": "…",
+    },
+    "mistral": {
+        "name": "Mistral AI", "icon": "🌬️", "badge": "pbadge-mistral",
+        "models": ["mistral-small-latest","open-mistral-7b","open-mixtral-8x7b"],
+        "free": True, "docs": "https://console.mistral.ai/api-keys/", "hint": "…",
     },
 }
 
@@ -374,7 +388,7 @@ PIPELINE_TEMPLATES = [
         "icon": "📰",
         "steps": [
             {"agent":"web_search","instruction":"Research this topic thoroughly and gather key facts, stats, and sources","provider":"groq","model":"llama-3.3-70b-versatile"},
-            {"agent":"writer",    "instruction":"Write a comprehensive, well-structured article based on the research","provider":"anthropic","model":"claude-sonnet-4-20250514"},
+            {"agent":"writer",    "instruction":"Write a comprehensive, well-structured article based on the research","provider":"groq","model":"llama-3.3-70b-versatile"},
             {"agent":"writer",    "instruction":"Review and improve the article for clarity, flow, and accuracy","provider":"groq","model":"llama-3.3-70b-versatile"},
         ]
     },
@@ -384,7 +398,7 @@ PIPELINE_TEMPLATES = [
         "icon": "🐙",
         "steps": [
             {"agent":"github",       "instruction":"Analyze the provided GitHub repository or issue","provider":"groq","model":"llama-3.3-70b-versatile"},
-            {"agent":"code",         "instruction":"Review the code quality, suggest improvements and best practices","provider":"anthropic","model":"claude-sonnet-4-20250514"},
+            {"agent":"code",         "instruction":"Review the code quality, suggest improvements and best practices","provider":"groq","model":"llama-3.3-70b-versatile"},
             {"agent":"gmail",        "instruction":"Draft a professional email summarizing the code review findings","provider":"groq","model":"llama-3.3-70b-versatile"},
         ]
     },
@@ -394,7 +408,7 @@ PIPELINE_TEMPLATES = [
         "icon": "📊",
         "steps": [
             {"agent":"data_analyst","instruction":"Analyze the provided data and identify key patterns and trends","provider":"groq","model":"llama-3.3-70b-versatile"},
-            {"agent":"data_analyst","instruction":"Generate actionable business insights and recommendations","provider":"anthropic","model":"claude-sonnet-4-20250514"},
+            {"agent":"data_analyst","instruction":"Generate actionable business insights and recommendations","provider":"groq","model":"llama-3.3-70b-versatile"},
             {"agent":"writer",      "instruction":"Write a professional executive summary report","provider":"groq","model":"llama-3.3-70b-versatile"},
         ]
     },
@@ -403,7 +417,7 @@ PIPELINE_TEMPLATES = [
         "desc": "Turn an idea into code with a deployment config",
         "icon": "🚀",
         "steps": [
-            {"agent":"code",   "instruction":"Write clean, production-ready code for this idea","provider":"anthropic","model":"claude-sonnet-4-20250514"},
+            {"agent":"code",   "instruction":"Write clean, production-ready code for this idea","provider":"groq","model":"llama-3.3-70b-versatile"},
             {"agent":"code",   "instruction":"Add error handling, tests, and documentation to the code","provider":"groq","model":"llama-3.3-70b-versatile"},
             {"agent":"devops", "instruction":"Create a Dockerfile and deployment configuration for this application","provider":"groq","model":"llama-3.3-70b-versatile"},
         ]
@@ -431,7 +445,7 @@ _defaults = {
     "circuit_breakers":   {},    # {provider: {failures, open_until}}
     "circuit_threshold":  3,     # failures before opening circuit
     "circuit_timeout":    60,    # seconds circuit stays open
-    "fallback_chain":     ["groq","anthropic","gemini","openrouter"],
+    "fallback_chain":     ["groq","gemini","openrouter","together","mistral","cohere"],
     "auto_fallback":      True,
     # Stats
     "stats": {"total_calls":0,"total_tokens":0,"total_errors":0,"provider_calls":{},"provider_errors":{},"latencies":[]},
@@ -574,6 +588,66 @@ def _single_call(provider: str, model: str, messages: list, system_prompt: str) 
         tokens = data.get("usage", {}).get("total_tokens", 0)
         return text, tokens
 
+    elif provider == "together":
+        msgs = []
+        if system_prompt:
+            msgs.append({"role": "system", "content": system_prompt})
+        msgs.extend(messages)
+        r = requests.post(
+            "https://api.together.xyz/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={"model": model, "messages": msgs,
+                  "max_tokens": st.session_state.max_tokens,
+                  "temperature": st.session_state.temperature},
+            timeout=90,
+        )
+        if r.status_code != 200:
+            raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
+        data = r.json()
+        text = data["choices"][0]["message"]["content"]
+        tokens = data.get("usage", {}).get("total_tokens", 0)
+        return text, tokens
+
+    elif provider == "cohere":
+        chat_history = []
+        for m in messages[:-1]:
+            chat_history.append({"role": "USER" if m["role"] == "user" else "CHATBOT", "message": m["content"]})
+        last_msg = messages[-1]["content"] if messages else ""
+        payload = {"model": model, "message": last_msg, "chat_history": chat_history,
+                   "max_tokens": st.session_state.max_tokens, "temperature": st.session_state.temperature}
+        if system_prompt:
+            payload["preamble"] = system_prompt
+        r = requests.post("https://api.cohere.com/v1/chat",
+                          headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                          json=payload, timeout=90)
+        if r.status_code != 200:
+            raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
+        data = r.json()
+        text = data.get("text", "")
+        tokens = data.get("meta", {}).get("tokens", {}).get("input_tokens", 0) + \
+                 data.get("meta", {}).get("tokens", {}).get("output_tokens", 0)
+        return text, tokens
+
+    elif provider == "mistral":
+        msgs = []
+        if system_prompt:
+            msgs.append({"role": "system", "content": system_prompt})
+        msgs.extend(messages)
+        r = requests.post(
+            "https://api.mistral.ai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={"model": model, "messages": msgs,
+                  "max_tokens": st.session_state.max_tokens,
+                  "temperature": st.session_state.temperature},
+            timeout=90,
+        )
+        if r.status_code != 200:
+            raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
+        data = r.json()
+        text = data["choices"][0]["message"]["content"]
+        tokens = data.get("usage", {}).get("total_tokens", 0)
+        return text, tokens
+
     raise ValueError(f"Unknown provider: {provider}")
 
 
@@ -690,10 +764,11 @@ def github_real(msg: str) -> str | None:
 # ─────────────────────────────────────────────────────────────────────────────
 # SIDEBAR
 # ─────────────────────────────────────────────────────────────────────────────
-NAV = ["🏠  Dashboard", "🤖  Agents", "🔗  Pipelines", "🔑  API Config",
+NAV = ["🏠  Dashboard", "🤖  Agents", "🚀  Pipeline Studio", "🔗  Pipelines", "🔑  API Config",
        "🛡  Resilience", "🖥  Command Center", "📋  Logs", "🧠  Thought History", "⚙️  Settings",
        "📚  Prompt Library", "📊  Analytics", "🧠  Memory", "⏱  Scheduler",
-       "🛠️  Tools Tester", "🧪  Model Playground"]
+       "🛠️  Tools Tester", "🧪  Model Playground",
+       "💰  Cost Tracker", "🔀  Diff Viewer", "🗂  Batch Runner", "🧠  Knowledge Base"]
 
 with st.sidebar:
     st.markdown("""
@@ -876,10 +951,25 @@ def page_dashboard():
           <td style='padding:6px 8px;color:#505080'>Llama 3.3, DeepSeek-R1, Gemma, Mistral — all free models</td>
           <td style='padding:6px 8px'><a href='https://openrouter.ai/keys' target='_blank' style='color:#4444cc'>Get key →</a></td>
         </tr>
-        <tr>
+        <tr style='border-bottom:1px solid #101028'>
           <td style='padding:6px 8px;color:#d0d0f0;font-weight:600'>🔵 Gemini</td>
           <td style='padding:6px 8px;color:#505080'>Flash 2.0, 1.5 Flash — Google free tier</td>
           <td style='padding:6px 8px'><a href='https://aistudio.google.com/app/apikey' target='_blank' style='color:#4444cc'>Get key →</a></td>
+        </tr>
+        <tr style='border-bottom:1px solid #101028'>
+          <td style='padding:6px 8px;color:#d0d0f0;font-weight:600'>🤝 Together AI</td>
+          <td style='padding:6px 8px;color:#505080'>Llama 3.3 70B, DeepSeek-R1 — free tier models</td>
+          <td style='padding:6px 8px'><a href='https://api.together.ai/settings/api-keys' target='_blank' style='color:#4444cc'>Get key →</a></td>
+        </tr>
+        <tr style='border-bottom:1px solid #101028'>
+          <td style='padding:6px 8px;color:#d0d0f0;font-weight:600'>🌊 Cohere</td>
+          <td style='padding:6px 8px;color:#505080'>Command-R — free trial credits, great for RAG</td>
+          <td style='padding:6px 8px'><a href='https://dashboard.cohere.com/api-keys' target='_blank' style='color:#4444cc'>Get key →</a></td>
+        </tr>
+        <tr>
+          <td style='padding:6px 8px;color:#d0d0f0;font-weight:600'>🌬️ Mistral AI</td>
+          <td style='padding:6px 8px;color:#505080'>Mistral 7B, Mixtral — free trial on La Plateforme</td>
+          <td style='padding:6px 8px'><a href='https://console.mistral.ai/api-keys/' target='_blank' style='color:#4444cc'>Get key →</a></td>
         </tr>
       </table>
     </div>""", unsafe_allow_html=True)
@@ -1160,7 +1250,7 @@ def page_pipelines():
             flow = ""
             for i, step in enumerate(steps):
                 a    = AGENTS.get(step["agent"], {})
-                prov = PROVIDERS.get(step.get("provider","anthropic"), {})
+                prov = PROVIDERS.get(step.get("provider","groq"), {})
                 instr_snip = f"<div style='font-size:8px;color:#4444bb;margin-top:2px'>{step['instruction'][:20]}…</div>" if step.get("instruction") else ""
                 flow += f"<div class='pnode'><div style='font-size:16px'>{a.get('icon','?')}</div><div style='font-size:9px;color:#a0a0c0'>{a.get('name','?')}</div><div style='font-size:8px;color:#4444bb'>{prov.get('icon','')} {step.get('provider','')}</div>{instr_snip}</div>"
                 if i < len(steps)-1: flow += "<span class='parrow'>→</span>"
@@ -1173,7 +1263,7 @@ def page_pipelines():
                 with ec1: st.markdown(f"<div style='padding-top:8px;font-size:12px;font-weight:600;color:#c0c0e0'>{a.get('icon','')} {a.get('name','?')}</div>", unsafe_allow_html=True)
                 with ec2: steps[i]["instruction"] = st.text_input("instr", value=step.get("instruction",""), key=f"si_{i}", label_visibility="collapsed", placeholder="Instruction…")
                 with ec3:
-                    pm = PROVIDERS.get(step.get("provider","anthropic"),{})
+                    pm = PROVIDERS.get(step.get("provider","groq"),{})
                     st.markdown(f"<div style='padding-top:8px;font-size:9px;color:#4444bb'>{pm.get('icon','')} {step.get('model','')[:24]}</div>", unsafe_allow_html=True)
                 with ec4:
                     if i > 0 and st.button("⬆", key=f"up_{i}"): steps[i],steps[i-1]=steps[i-1],steps[i]; st.rerun()
@@ -1630,6 +1720,9 @@ def page_settings():
 # ─────────────────────────────────────────────────────────────────────────────
 if   "Dashboard"        in nav: page_dashboard()
 elif "Agents"           in nav: page_agents()
+elif "Pipeline Studio"  in nav:
+    from pages.pipeline_studio import render as render_pipeline_studio
+    render_pipeline_studio()
 elif "Pipelines"        in nav: page_pipelines()
 elif "API Config"       in nav: page_api_config()
 elif "Resilience"       in nav: page_resilience()
@@ -1661,3 +1754,23 @@ elif "Tools Tester"     in nav:
 elif "Model Playground" in nav:
     from pages.model_playground import render as render_playground
     render_playground()
+
+elif "Pipeline Studio" in nav:
+    from pages.pipeline_studio import render as render_pipeline_studio
+    render_pipeline_studio()
+
+elif "Cost Tracker" in nav:
+    from pages.cost_tracker import render as render_cost_tracker
+    render_cost_tracker()
+
+elif "Diff Viewer" in nav:
+    from pages.diff_viewer import render as render_diff_viewer
+    render_diff_viewer()
+
+elif "Batch Runner" in nav:
+    from pages.batch_runner import render as render_batch_runner
+    render_batch_runner()
+
+elif "Knowledge Base" in nav:
+    from pages.knowledge_base import render as render_knowledge_base
+    render_knowledge_base()

@@ -133,7 +133,7 @@ Format times clearly (e.g., "Monday, Jan 15 at 2:00 PM – 3:00 PM EST").""",
         "name":          "API Connector",
         "icon":          "🔌",
         "description":   "Connect to any REST API, inspect endpoints, and build integrations.",
-        "api_key_field": "anthropic",
+        "api_key_field": "groq",
         "capabilities": [
             "Inspect any REST API endpoint",
             "Generate API call code in Python/JS/curl",
@@ -277,7 +277,7 @@ When creating content, ask for key details first. Recommend templates for common
         "name":          "Code Review Agent",
         "icon":          "👁️",
         "description":   "Deep code review: bugs, security, performance, style, and best practices.",
-        "api_key_field": "anthropic",
+        "api_key_field": "groq",
         "capabilities": [
             "Bug detection and static analysis",
             "Security vulnerability scanning",
@@ -307,7 +307,7 @@ Format your review as numbered issues with severity (🔴 Critical / 🟠 Major 
         "name":          "Data Analyst",
         "icon":          "📊",
         "description":   "Analyze data, write SQL, explain statistics, and generate insights.",
-        "api_key_field": "anthropic",
+        "api_key_field": "groq",
         "capabilities": [
             "Write and explain SQL queries",
             "Statistical analysis and interpretation",
