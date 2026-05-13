@@ -60,13 +60,6 @@ def _build_pipeline():
             Add agents above to build your pipeline
         </div>""", unsafe_allow_html=True)
     else:
-        cols_per_row = 4
-        for i, step in enumerate(steps):
-            agent = AGENTS.get(step["agent"], {})
-            col_node, col_arrow = st.columns([3, 1]) if i < len(steps) - 1 else [st.columns([4])[0], None], None
-            # Render as a visual chain
-            pass
-
         # Render steps in a flow
         flow_html = "<div style='display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:16px 0'>"
         for i, step in enumerate(steps):

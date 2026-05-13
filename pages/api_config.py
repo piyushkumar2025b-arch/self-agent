@@ -17,11 +17,18 @@ API_FIELDS = {
     "gmail_oauth":     {"label": "Gmail OAuth Credentials (JSON)", "hint": "Paste JSON…",         "docs": "https://console.cloud.google.com/",              "icon": "📧"},
     "google_calendar": {"label": "Google Calendar API Key",        "hint": "AIza…",               "docs": "https://console.cloud.google.com/",              "icon": "📅"},
     "google_keep":     {"label": "Google Keep Auth Token",         "hint": "master token…",        "docs": "https://pypi.org/project/gkeepapi/",             "icon": "📝"},
+    # Free-tier providers
+    "gemini":          {"label": "Gemini API Key (Google AI Studio)", "hint": "AIzaSy…",          "docs": "https://aistudio.google.com/app/apikey",         "icon": "🔵"},
+    "openrouter":      {"label": "OpenRouter API Key",             "hint": "sk-or-v1-…",          "docs": "https://openrouter.ai/keys",                     "icon": "🌐"},
+    "mistral":         {"label": "Mistral API Key",                "hint": "…",                   "docs": "https://console.mistral.ai/api-keys/",           "icon": "🌬️"},
+    "cohere":          {"label": "Cohere API Key",                 "hint": "…",                   "docs": "https://dashboard.cohere.com/api-keys",          "icon": "🌊"},
+    "together":        {"label": "Together AI API Key",            "hint": "…",                   "docs": "https://api.together.ai/settings/api-keys",      "icon": "🤝"},
 }
 
 # Group fields visually
 GROUPS = {
     "🤖 AI Providers": ["anthropic", "openai", "groq"],
+    "🆓 Free Providers": ["gemini", "openrouter", "mistral", "cohere", "together"],
     "🛠️ Dev Tools": ["github"],
     "📡 Data & Search": ["newsapi", "openweather", "serpapi"],
     "📋 Productivity": ["notion", "slack", "jira", "jira_email", "jira_base_url"],

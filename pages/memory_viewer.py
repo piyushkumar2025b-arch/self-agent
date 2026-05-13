@@ -46,7 +46,7 @@ def render():
     # ── Retrieve and display ───────────────────────────────────────────────
     if query:
         entries = search_memory(query, agent_id=filter_agent if filter_agent != "all" else None)
-        st.markdown(f"<div class='section-title'>Search results for "{query}" ({len(entries)} found)</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='section-title'>Search results for '{query}' ({len(entries)} found)</div>", unsafe_allow_html=True)
         _render_entries(entries, show_agent=True)
     else:
         all_mem = get_all_memories()

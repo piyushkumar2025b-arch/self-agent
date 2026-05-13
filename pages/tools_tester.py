@@ -11,7 +11,16 @@ from utils.api_clients import (
     openai_chat, openai_list_models, groq_chat, groq_list_models,
     serp_search, news_top_headlines, news_everything,
     weather_current, weather_forecast,
-    notion_search, slack_list_channels, slack_post_message,
+    notion_search, notion_create_page, slack_list_channels, slack_post_message, slack_get_history,
+    jira_get_issues, jira_create_issue,
+    gmail_search, gmail_get_thread, gmail_send,
+    calendar_list_events, calendar_create_event, calendar_check_availability,
+    keep_list_notes, keep_search_notes, keep_create_note,
+    gemini_chat, gemini_list_models,
+    openrouter_chat, openrouter_list_models,
+    mistral_chat, mistral_list_models,
+    cohere_chat,
+    together_chat,
 )
 
 
@@ -146,6 +155,187 @@ TESTS = {
                 {"key": "text", "label": "Message", "default": "Hello from AgentOS Tools Tester! 👋"},
             ],
             "call": lambda f: slack_post_message(f["channel"], f["text"]),
+        },
+    },
+
+    "📓 Notion (Extended)": {
+        "Create Page": {
+            "fields": [
+                {"key": "database_id", "label": "Database ID", "default": ""},
+                {"key": "title", "label": "Page Title", "default": "New page from AgentOS"},
+            ],
+            "call": lambda f: notion_create_page(
+                f["database_id"],
+                {"Name": {"title": [{"text": {"content": f["title"]}}]}},
+            ),
+        },
+    },
+    "💬 Slack (Extended)": {
+        "Get Channel History": {
+            "fields": [
+                {"key": "channel", "label": "Channel ID", "default": "C1234567890"},
+                {"key": "limit", "label": "Message Count", "default": "10"},
+            ],
+            "call": lambda f: slack_get_history(f["channel"], int(f["limit"])),
+        },
+    },
+    "🎯 Jira": {
+        "List Issues": {
+            "fields": [
+                {"key": "base_url", "label": "Jira Base URL", "default": "https://myco.atlassian.net"},
+                {"key": "project_key", "label": "Project Key", "default": "PROJ"},
+            ],
+            "call": lambda f: jira_get_issues(f["base_url"], f["project_key"]),
+        },
+        "Create Issue": {
+            "fields": [
+                {"key": "base_url", "label": "Jira Base URL", "default": "https://myco.atlassian.net"},
+                {"key": "project_key", "label": "Project Key", "default": "PROJ"},
+                {"key": "summary", "label": "Summary", "default": "Test issue from AgentOS"},
+                {"key": "description", "label": "Description", "default": "Created via AgentOS Tools Tester."},
+                {"key": "issue_type", "label": "Issue Type", "type": "select",
+                 "options": ["Task", "Bug", "Story", "Epic"], "default": "Task"},
+            ],
+            "call": lambda f: jira_create_issue(f["base_url"], f["project_key"],
+                                                 f["summary"], f["description"], f["issue_type"]),
+        },
+    },
+    "📧 Gmail": {
+        "Search Emails": {
+            "fields": [
+                {"key": "query", "label": "Gmail Search Query", "default": "from:example@gmail.com"},
+                {"key": "max_results", "label": "Max Results", "default": "5"},
+            ],
+            "call": lambda f: gmail_search(f["query"], int(f["max_results"])),
+        },
+        "Get Thread": {
+            "fields": [
+                {"key": "thread_id", "label": "Thread ID", "default": ""},
+            ],
+            "call": lambda f: gmail_get_thread(f["thread_id"]),
+        },
+        "Compose / Send Email": {
+            "fields": [
+                {"key": "to", "label": "To", "default": "test@example.com"},
+                {"key": "subject", "label": "Subject", "default": "Test from AgentOS"},
+                {"key": "body", "label": "Body", "default": "Hello from AgentOS!"},
+                {"key": "send", "label": "Action", "type": "select",
+                 "options": ["draft", "send"], "default": "draft"},
+            ],
+            "call": lambda f: gmail_send(f["to"], f["subject"], f["body"],
+                                          send=f["send"] == "send"),
+        },
+    },
+    "📅 Google Calendar": {
+        "List Upcoming Events": {
+            "fields": [
+                {"key": "calendar_id", "label": "Calendar ID", "default": "primary"},
+                {"key": "days_ahead", "label": "Days Ahead", "default": "7"},
+            ],
+            "call": lambda f: calendar_list_events(f["calendar_id"], int(f["days_ahead"])),
+        },
+        "Create Event": {
+            "fields": [
+                {"key": "title", "label": "Title", "default": "AgentOS Test Event"},
+                {"key": "start", "label": "Start (ISO 8601)", "default": "2026-06-01T10:00:00Z"},
+                {"key": "end",   "label": "End (ISO 8601)",   "default": "2026-06-01T11:00:00Z"},
+                {"key": "description", "label": "Description", "default": ""},
+            ],
+            "call": lambda f: calendar_create_event(f["title"], f["start"], f["end"],
+                                                     f["description"]),
+        },
+        "Check Availability": {
+            "fields": [
+                {"key": "attendees", "label": "Attendees (comma-separated)", "default": "user@gmail.com"},
+                {"key": "date", "label": "Date (YYYY-MM-DD)", "default": "2026-06-01"},
+            ],
+            "call": lambda f: calendar_check_availability(
+                [a.strip() for a in f["attendees"].split(",")], f["date"]
+            ),
+        },
+    },
+    "📝 Google Keep": {
+        "List Notes": {
+            "fields": [{"key": "max_results", "label": "Max Results", "default": "10"}],
+            "call": lambda f: keep_list_notes(int(f["max_results"])),
+        },
+        "Search Notes": {
+            "fields": [{"key": "query", "label": "Query", "default": "shopping"}],
+            "call": lambda f: keep_search_notes(f["query"]),
+        },
+        "Create Note": {
+            "fields": [
+                {"key": "title", "label": "Title", "default": "AgentOS Note"},
+                {"key": "text",  "label": "Text",  "default": "Created from AgentOS."},
+            ],
+            "call": lambda f: keep_create_note(f["title"], f["text"]),
+        },
+    },
+    "🔵 Gemini": {
+        "List Models": {
+            "fields": [],
+            "call": lambda f: gemini_list_models(),
+        },
+        "Chat Completion": {
+            "fields": [
+                {"key": "model", "label": "Model", "default": "gemini-2.0-flash"},
+                {"key": "message", "label": "User Message", "default": "Say hello in 5 words."},
+            ],
+            "call": lambda f: gemini_chat(
+                [{"role": "user", "content": f["message"]}], model=f["model"]
+            ),
+        },
+    },
+    "🌐 OpenRouter": {
+        "List Models": {
+            "fields": [],
+            "call": lambda f: openrouter_list_models(),
+        },
+        "Chat Completion": {
+            "fields": [
+                {"key": "model", "label": "Model", "default": "meta-llama/llama-3.3-70b-instruct:free"},
+                {"key": "message", "label": "User Message", "default": "What is 2+2?"},
+            ],
+            "call": lambda f: openrouter_chat(
+                [{"role": "user", "content": f["message"]}], model=f["model"]
+            ),
+        },
+    },
+    "🌬️ Mistral": {
+        "List Models": {
+            "fields": [],
+            "call": lambda f: mistral_list_models(),
+        },
+        "Chat Completion": {
+            "fields": [
+                {"key": "model", "label": "Model", "default": "open-mistral-7b"},
+                {"key": "message", "label": "User Message", "default": "What is 2+2?"},
+            ],
+            "call": lambda f: mistral_chat(
+                [{"role": "user", "content": f["message"]}], model=f["model"]
+            ),
+        },
+    },
+    "🌊 Cohere": {
+        "Chat Completion": {
+            "fields": [
+                {"key": "model", "label": "Model", "default": "command-r"},
+                {"key": "message", "label": "User Message", "default": "What is 2+2?"},
+            ],
+            "call": lambda f: cohere_chat(
+                [{"role": "user", "content": f["message"]}], model=f["model"]
+            ),
+        },
+    },
+    "🤝 Together AI": {
+        "Chat Completion": {
+            "fields": [
+                {"key": "model", "label": "Model", "default": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free"},
+                {"key": "message", "label": "User Message", "default": "What is 2+2?"},
+            ],
+            "call": lambda f: together_chat(
+                [{"role": "user", "content": f["message"]}], model=f["model"]
+            ),
         },
     },
 }

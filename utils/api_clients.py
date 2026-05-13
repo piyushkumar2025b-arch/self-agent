@@ -417,3 +417,468 @@ def jira_create_issue(base_url: str, project_key: str, summary: str,
         return r.json(), None
     except Exception as e:
         return None, str(e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Gmail (via Google API Python client)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _gmail_service():
+    """Build an authenticated Gmail service from stored OAuth JSON credentials."""
+    import json as _json
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+
+    raw = _key("gmail_oauth")
+    if not raw:
+        raise ValueError("Gmail OAuth credentials not set. Add them on the API Config page.")
+    creds_data = _json.loads(raw)
+    # Accept either a full token JSON (from token.json) or a simple dict with token fields
+    creds = Credentials(
+        token=creds_data.get("token") or creds_data.get("access_token"),
+        refresh_token=creds_data.get("refresh_token"),
+        token_uri=creds_data.get("token_uri", "https://oauth2.googleapis.com/token"),
+        client_id=creds_data.get("client_id"),
+        client_secret=creds_data.get("client_secret"),
+        scopes=creds_data.get("scopes", ["https://www.googleapis.com/auth/gmail.modify"]),
+    )
+    return build("gmail", "v1", credentials=creds, cache_discovery=False)
+
+
+def gmail_search(query: str, max_results: int = 10) -> Tuple[Any, Optional[str]]:
+    """Search Gmail and return a list of message summaries."""
+    try:
+        service = _gmail_service()
+        resp = service.users().messages().list(
+            userId="me", q=query, maxResults=max_results
+        ).execute()
+        messages = resp.get("messages", [])
+        results = []
+        for m in messages[:max_results]:
+            msg = service.users().messages().get(
+                userId="me", id=m["id"], format="metadata",
+                metadataHeaders=["From", "Subject", "Date"]
+            ).execute()
+            headers = {h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])}
+            results.append({
+                "id": m["id"],
+                "threadId": m["threadId"],
+                "from": headers.get("From", ""),
+                "subject": headers.get("Subject", ""),
+                "date": headers.get("Date", ""),
+                "snippet": msg.get("snippet", ""),
+            })
+        return results, None
+    except Exception as e:
+        return None, str(e)
+
+
+def gmail_get_thread(thread_id: str) -> Tuple[Any, Optional[str]]:
+    """Fetch a full email thread by thread ID."""
+    import base64 as _b64
+    try:
+        service = _gmail_service()
+        thread = service.users().threads().get(userId="me", id=thread_id, format="full").execute()
+        parsed = []
+        for msg in thread.get("messages", []):
+            headers = {h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])}
+            body = ""
+            parts = msg.get("payload", {}).get("parts", [])
+            if parts:
+                for part in parts:
+                    if part.get("mimeType") == "text/plain":
+                        data = part.get("body", {}).get("data", "")
+                        body = _b64.urlsafe_b64decode(data + "==").decode("utf-8", errors="replace")
+                        break
+            else:
+                data = msg.get("payload", {}).get("body", {}).get("data", "")
+                if data:
+                    body = _b64.urlsafe_b64decode(data + "==").decode("utf-8", errors="replace")
+            parsed.append({
+                "id": msg["id"],
+                "from": headers.get("From", ""),
+                "subject": headers.get("Subject", ""),
+                "date": headers.get("Date", ""),
+                "body": body[:2000],
+            })
+        return parsed, None
+    except Exception as e:
+        return None, str(e)
+
+
+def gmail_send(to: str, subject: str, body: str, cc: str = "", send: bool = True) -> Tuple[Any, Optional[str]]:
+    """Compose and optionally send an email. Returns draft or sent message."""
+    import base64 as _b64
+    from email.mime.text import MIMEText
+    try:
+        service = _gmail_service()
+        msg = MIMEText(body)
+        msg["to"] = to
+        msg["subject"] = subject
+        if cc:
+            msg["cc"] = cc
+        raw = _b64.urlsafe_b64encode(msg.as_bytes()).decode()
+        if send:
+            result = service.users().messages().send(userId="me", body={"raw": raw}).execute()
+            return {"status": "sent", "id": result.get("id")}, None
+        else:
+            result = service.users().drafts().create(
+                userId="me", body={"message": {"raw": raw}}
+            ).execute()
+            return {"status": "draft", "id": result.get("id")}, None
+    except Exception as e:
+        return None, str(e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Google Calendar
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _calendar_service():
+    """Build an authenticated Calendar service. Uses the same OAuth JSON as Gmail if present,
+    falling back to a simple API key for read-only access."""
+    import json as _json
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+
+    # Prefer OAuth credentials from gmail_oauth (covers calendar scope too)
+    oauth_raw = _key("gmail_oauth")
+    if oauth_raw:
+        creds_data = _json.loads(oauth_raw)
+        creds = Credentials(
+            token=creds_data.get("token") or creds_data.get("access_token"),
+            refresh_token=creds_data.get("refresh_token"),
+            token_uri=creds_data.get("token_uri", "https://oauth2.googleapis.com/token"),
+            client_id=creds_data.get("client_id"),
+            client_secret=creds_data.get("client_secret"),
+            scopes=creds_data.get("scopes", ["https://www.googleapis.com/auth/calendar"]),
+        )
+        return build("calendar", "v3", credentials=creds, cache_discovery=False)
+    api_key = _key("google_calendar")
+    if not api_key:
+        raise ValueError("Google Calendar API key (or Gmail OAuth) not set.")
+    return build("calendar", "v3", developerKey=api_key, cache_discovery=False)
+
+
+def calendar_list_events(calendar_id: str = "primary", days_ahead: int = 7) -> Tuple[Any, Optional[str]]:
+    """List upcoming Calendar events."""
+    from datetime import datetime, timezone, timedelta
+    try:
+        service = _calendar_service()
+        now = datetime.now(timezone.utc)
+        time_min = now.isoformat()
+        time_max = (now + timedelta(days=days_ahead)).isoformat()
+        result = service.events().list(
+            calendarId=calendar_id,
+            timeMin=time_min,
+            timeMax=time_max,
+            maxResults=20,
+            singleEvents=True,
+            orderBy="startTime",
+        ).execute()
+        events = []
+        for e in result.get("items", []):
+            start = e.get("start", {})
+            events.append({
+                "id": e["id"],
+                "summary": e.get("summary", "(No title)"),
+                "start": start.get("dateTime") or start.get("date"),
+                "end": (e.get("end", {}).get("dateTime") or e.get("end", {}).get("date")),
+                "location": e.get("location", ""),
+                "attendees": [a.get("email") for a in e.get("attendees", [])],
+                "description": e.get("description", ""),
+            })
+        return events, None
+    except Exception as e:
+        return None, str(e)
+
+
+def calendar_create_event(title: str, start: str, end: str,
+                           description: str = "", attendees: list = None,
+                           location: str = "", calendar_id: str = "primary") -> Tuple[Any, Optional[str]]:
+    """Create a Google Calendar event."""
+    try:
+        service = _calendar_service()
+        body = {
+            "summary": title,
+            "description": description,
+            "location": location,
+            "start": {"dateTime": start, "timeZone": "UTC"},
+            "end":   {"dateTime": end,   "timeZone": "UTC"},
+        }
+        if attendees:
+            body["attendees"] = [{"email": a} for a in attendees]
+        result = service.events().insert(calendarId=calendar_id, body=body).execute()
+        return {"id": result.get("id"), "htmlLink": result.get("htmlLink")}, None
+    except Exception as e:
+        return None, str(e)
+
+
+def calendar_check_availability(attendees: list, date: str) -> Tuple[Any, Optional[str]]:
+    """Check free/busy for a list of attendees on a given date (YYYY-MM-DD)."""
+    try:
+        service = _calendar_service()
+        time_min = f"{date}T00:00:00Z"
+        time_max = f"{date}T23:59:59Z"
+        body = {
+            "timeMin": time_min,
+            "timeMax": time_max,
+            "items": [{"id": a} for a in attendees],
+        }
+        result = service.freebusy().query(body=body).execute()
+        calendars = result.get("calendars", {})
+        report = {}
+        for email, data in calendars.items():
+            busy = data.get("busy", [])
+            report[email] = {"busy_slots": busy, "is_free_all_day": len(busy) == 0}
+        return report, None
+    except Exception as e:
+        return None, str(e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Google Keep (via gkeepapi)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _keep_api():
+    """Authenticate and return a gkeepapi Keep instance."""
+    import gkeepapi
+    token = _key("google_keep")
+    if not token:
+        raise ValueError("Google Keep auth token not set. Add it on the API Config page.")
+    keep = gkeepapi.Keep()
+    keep.resume(token, {})  # resume from master token
+    return keep
+
+
+def keep_create_note(title: str = "", text: str = "", labels: list = None,
+                     pinned: bool = False, checklist: list = None) -> Tuple[Any, Optional[str]]:
+    """Create a new Google Keep note or checklist."""
+    try:
+        keep = _keep_api()
+        if checklist:
+            note = keep.createList(title, [(item, False) for item in checklist])
+        else:
+            note = keep.createNote(title, text)
+        note.pinned = pinned
+        keep.sync()
+        return {"id": note.id, "title": note.title, "status": "created"}, None
+    except Exception as e:
+        return None, str(e)
+
+
+def keep_search_notes(query: str) -> Tuple[Any, Optional[str]]:
+    """Search Google Keep notes by text."""
+    try:
+        keep = _keep_api()
+        keep.sync()
+        results = []
+        for note in keep.find(query=query):
+            results.append({
+                "id": note.id,
+                "title": note.title,
+                "text": note.text[:500] if hasattr(note, "text") else "",
+                "pinned": note.pinned,
+                "labels": [lbl.name for lbl in note.labels.all()],
+            })
+        return results, None
+    except Exception as e:
+        return None, str(e)
+
+
+def keep_list_notes(max_results: int = 20) -> Tuple[Any, Optional[str]]:
+    """List all Google Keep notes."""
+    try:
+        keep = _keep_api()
+        keep.sync()
+        results = []
+        for note in list(keep.all())[:max_results]:
+            results.append({
+                "id": note.id,
+                "title": note.title,
+                "text": note.text[:300] if hasattr(note, "text") else "",
+                "pinned": note.pinned,
+            })
+        return results, None
+    except Exception as e:
+        return None, str(e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Gemini (direct REST — no SDK needed)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def gemini_chat(messages: list, model: str = "gemini-2.0-flash",
+                system: str = "", max_tokens: int = 1024,
+                temperature: float = 0.7) -> Tuple[Any, Optional[str]]:
+    """Call Gemini via the REST API."""
+    api_key = _key("gemini")
+    if not api_key:
+        return None, "Gemini API key not set."
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    contents = []
+    if system:
+        contents.append({"role": "user",  "parts": [{"text": f"[System]: {system}"}]})
+        contents.append({"role": "model", "parts": [{"text": "Understood."}]})
+    for m in messages:
+        role = "model" if m["role"] == "assistant" else "user"
+        contents.append({"role": role, "parts": [{"text": m["content"]}]})
+    payload = {
+        "contents": contents,
+        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": temperature},
+    }
+    try:
+        r = requests.post(url, json=payload, timeout=60)
+        if r.status_code != 200:
+            return None, f"Gemini error {r.status_code}: {r.text}"
+        data = r.json()
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        usage = data.get("usageMetadata", {})
+        return {
+            "text": text,
+            "model": model,
+            "usage": {
+                "input_tokens": usage.get("promptTokenCount", 0),
+                "output_tokens": usage.get("candidatesTokenCount", 0),
+            }
+        }, None
+    except Exception as e:
+        return None, str(e)
+
+
+def gemini_list_models() -> Tuple[Any, Optional[str]]:
+    """List available Gemini models."""
+    api_key = _key("gemini")
+    if not api_key:
+        return None, "Gemini API key not set."
+    try:
+        r = requests.get(
+            "https://generativelanguage.googleapis.com/v1beta/models",
+            params={"key": api_key}, timeout=10
+        )
+        if r.status_code != 200:
+            return None, f"Gemini error {r.status_code}: {r.text}"
+        return r.json(), None
+    except Exception as e:
+        return None, str(e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OpenRouter
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _openrouter_headers() -> dict:
+    return {
+        "Authorization": f"Bearer {_key('openrouter')}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://agentos-pro.app",
+        "X-Title": "AgentOS Pro",
+    }
+
+
+def openrouter_chat(messages: list, model: str = "meta-llama/llama-3.3-70b-instruct:free",
+                    temperature: float = 0.7, max_tokens: int = 1024) -> Tuple[Any, Optional[str]]:
+    payload = {"model": model, "messages": messages,
+               "temperature": temperature, "max_tokens": max_tokens}
+    try:
+        r = requests.post("https://openrouter.ai/api/v1/chat/completions",
+                          headers=_openrouter_headers(), json=payload, timeout=60)
+        if r.status_code != 200:
+            return None, f"OpenRouter error {r.status_code}: {r.json().get('error', {}).get('message', r.text)}"
+        return r.json(), None
+    except Exception as e:
+        return None, str(e)
+
+
+def openrouter_list_models() -> Tuple[Any, Optional[str]]:
+    try:
+        r = requests.get("https://openrouter.ai/api/v1/models",
+                         headers=_openrouter_headers(), timeout=10)
+        if r.status_code != 200:
+            return None, f"OpenRouter error {r.status_code}"
+        return r.json(), None
+    except Exception as e:
+        return None, str(e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mistral
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _mistral_headers() -> dict:
+    return {"Authorization": f"Bearer {_key('mistral')}", "Content-Type": "application/json"}
+
+
+def mistral_chat(messages: list, model: str = "open-mistral-7b",
+                 temperature: float = 0.7, max_tokens: int = 1024) -> Tuple[Any, Optional[str]]:
+    payload = {"model": model, "messages": messages,
+               "temperature": temperature, "max_tokens": max_tokens}
+    try:
+        r = requests.post("https://api.mistral.ai/v1/chat/completions",
+                          headers=_mistral_headers(), json=payload, timeout=60)
+        if r.status_code != 200:
+            return None, f"Mistral error {r.status_code}: {r.json().get('message', r.text)}"
+        return r.json(), None
+    except Exception as e:
+        return None, str(e)
+
+
+def mistral_list_models() -> Tuple[Any, Optional[str]]:
+    try:
+        r = requests.get("https://api.mistral.ai/v1/models",
+                         headers=_mistral_headers(), timeout=10)
+        if r.status_code != 200:
+            return None, f"Mistral error {r.status_code}"
+        return r.json(), None
+    except Exception as e:
+        return None, str(e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Cohere
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _cohere_headers() -> dict:
+    return {"Authorization": f"Bearer {_key('cohere')}", "Content-Type": "application/json"}
+
+
+def cohere_chat(messages: list, model: str = "command-r",
+                temperature: float = 0.7, max_tokens: int = 1024) -> Tuple[Any, Optional[str]]:
+    chat_history = [
+        {"role": "USER" if m["role"] == "user" else "CHATBOT", "message": m["content"]}
+        for m in messages[:-1]
+    ]
+    last_msg = messages[-1]["content"] if messages else ""
+    payload = {"model": model, "message": last_msg,
+               "chat_history": chat_history, "max_tokens": max_tokens, "temperature": temperature}
+    try:
+        r = requests.post("https://api.cohere.com/v1/chat",
+                          headers=_cohere_headers(), json=payload, timeout=60)
+        if r.status_code != 200:
+            return None, f"Cohere error {r.status_code}: {r.text}"
+        return r.json(), None
+    except Exception as e:
+        return None, str(e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Together AI
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _together_headers() -> dict:
+    return {"Authorization": f"Bearer {_key('together')}", "Content-Type": "application/json"}
+
+
+def together_chat(messages: list,
+                  model: str = "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+                  temperature: float = 0.7, max_tokens: int = 1024) -> Tuple[Any, Optional[str]]:
+    payload = {"model": model, "messages": messages,
+               "temperature": temperature, "max_tokens": max_tokens}
+    try:
+        r = requests.post("https://api.together.xyz/v1/chat/completions",
+                          headers=_together_headers(), json=payload, timeout=60)
+        if r.status_code != 200:
+            return None, f"Together error {r.status_code}: {r.json().get('error', {}).get('message', r.text)}"
+        return r.json(), None
+    except Exception as e:
+        return None, str(e)
