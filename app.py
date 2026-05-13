@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 
 # ── New feature modules ──────────────────────────────────────────────────────
+from connector import PAGE_REGISTRY, get_nav_labels, route, connect, get_connected_api_count
 from utils.interrupt_controller import init_interrupt_state
 from utils.thought_process       import init_thought_state, render_thought_toggle
 from utils.mid_run_editor        import init_midrun_state
@@ -764,11 +765,7 @@ def github_real(msg: str) -> str | None:
 # ─────────────────────────────────────────────────────────────────────────────
 # SIDEBAR
 # ─────────────────────────────────────────────────────────────────────────────
-NAV = ["🏠  Dashboard", "🤖  Agents", "🚀  Pipeline Studio", "🔗  Pipelines", "🔑  API Config",
-       "🛡  Resilience", "🖥  Command Center", "📋  Logs", "🧠  Thought History", "⚙️  Settings",
-       "📚  Prompt Library", "📊  Analytics", "🧠  Memory", "⏱  Scheduler",
-       "🛠️  Tools Tester", "🧪  Model Playground",
-       "💰  Cost Tracker", "🔀  Diff Viewer", "🗂  Batch Runner", "🧠  Knowledge Base"]
+NAV = get_nav_labels()
 
 with st.sidebar:
     st.markdown("""
@@ -861,7 +858,8 @@ def page_dashboard():
 
     # Provider health grid
     st.markdown("<div class='stitle'>Provider Health</div>", unsafe_allow_html=True)
-    pcols = st.columns(4)
+    _pcols_n = min(len(PROVIDERS), 4)
+    pcols = st.columns(_pcols_n)
     for i, (pid, prov) in enumerate(PROVIDERS.items()):
         key_ok    = bool(st.session_state.api_keys.get(pid, ""))
         cb        = st.session_state.circuit_breakers.get(pid, {})
@@ -882,7 +880,7 @@ def page_dashboard():
             status_html = f"<span class='pill pill-green'><span class='dot dot-green'></span> Connected</span>"
 
         is_active = pid == st.session_state.active_provider
-        with pcols[i]:
+        with pcols[i % _pcols_n]:
             st.markdown(f"""
             <div class='card {"card-active" if is_active else ""}'>
               <div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:6px'>
@@ -1716,61 +1714,41 @@ def page_settings():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ROUTER
+# ROUTER  (powered by connector.py)
 # ─────────────────────────────────────────────────────────────────────────────
-if   "Dashboard"        in nav: page_dashboard()
-elif "Agents"           in nav: page_agents()
-elif "Pipeline Studio"  in nav:
-    from pages.pipeline_studio import render as render_pipeline_studio
-    render_pipeline_studio()
-elif "Pipelines"        in nav: page_pipelines()
-elif "API Config"       in nav: page_api_config()
-elif "Resilience"       in nav: page_resilience()
-elif "Command Center"   in nav: page_command_center()
-elif "Logs"             in nav: page_logs()
-elif "Thought History"  in nav:
+
+# Inline handlers for pages that live entirely in app.py
+def _render_dashboard():       page_dashboard()
+def _render_agents():          page_agents()
+def _render_pipelines():       page_pipelines()
+def _render_api_config():      page_api_config()
+def _render_resilience():      page_resilience()
+def _render_command_center():  page_command_center()
+def _render_logs():            page_logs()
+def _render_settings():        page_settings()
+
+def _render_thought_history():
     st.markdown("## 🧠 Thought History")
-    st.markdown("<p style='margin-bottom:14px;font-size:13px'>Step-by-step reasoning traces captured when 'Show thought process' is enabled.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='margin-bottom:14px;font-size:13px'>Step-by-step reasoning traces captured when Show thought process is enabled.</p>", unsafe_allow_html=True)
     from utils.thought_process import render_thought_history, render_thought_toggle
     render_thought_toggle()
     st.markdown("---")
     render_thought_history()
-elif "Settings"         in nav: page_settings()
-elif "Prompt Library"   in nav:
-    from pages.prompt_library import render as render_prompt_library
-    render_prompt_library()
-elif "Analytics"        in nav:
-    from pages.analytics import render as render_analytics
-    render_analytics()
-elif "Memory"           in nav:
-    from pages.memory_viewer import render as render_memory
-    render_memory()
-elif "Scheduler"        in nav:
-    from pages.scheduler import render as render_scheduler
-    render_scheduler()
-elif "Tools Tester"     in nav:
-    from pages.tools_tester import render as render_tools_tester
-    render_tools_tester()
-elif "Model Playground" in nav:
-    from pages.model_playground import render as render_playground
-    render_playground()
 
-elif "Pipeline Studio" in nav:
-    from pages.pipeline_studio import render as render_pipeline_studio
-    render_pipeline_studio()
+INLINE_HANDLERS = {
+    "page_dashboard":      _render_dashboard,
+    "page_agents":         _render_agents,
+    "page_pipelines":      _render_pipelines,
+    "page_api_config":     _render_api_config,
+    "page_resilience":     _render_resilience,
+    "page_command_center": _render_command_center,
+    "page_logs":           _render_logs,
+    "page_settings":       _render_settings,
+    "page_thought_history": _render_thought_history,
+}
 
-elif "Cost Tracker" in nav:
-    from pages.cost_tracker import render as render_cost_tracker
-    render_cost_tracker()
-
-elif "Diff Viewer" in nav:
-    from pages.diff_viewer import render as render_diff_viewer
-    render_diff_viewer()
-
-elif "Batch Runner" in nav:
-    from pages.batch_runner import render as render_batch_runner
-    render_batch_runner()
-
-elif "Knowledge Base" in nav:
-    from pages.knowledge_base import render as render_knowledge_base
+matched = route(nav, inline_handlers=INLINE_HANDLERS)
+if not matched:
+    st.warning(f"Page not found: `{nav}`. Check PAGE_REGISTRY in connector.py.")
+    st.info("Available pages: " + ", ".join([m["label"] for m in PAGE_REGISTRY.values()]))
     render_knowledge_base()

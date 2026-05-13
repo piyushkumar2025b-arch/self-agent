@@ -1,31 +1,49 @@
-# Core
+# ── Core ──────────────────────────────────────────────────────────────────────
 streamlit>=1.35.0
 python-dotenv>=1.0.0
 requests>=2.31.0
 httpx>=0.27.0
 
-# AI Providers
+# ── AI Providers ──────────────────────────────────────────────────────────────
 anthropic>=0.30.0
-google-generativeai>=0.7.0
-groq>=0.9.0
 openai>=1.30.0
+groq>=0.9.0
+google-generativeai>=0.7.0   # Gemini SDK (optional — we also call REST directly)
+cohere>=5.3.0
+mistralai>=0.4.0
+together>=1.2.0
 
-# GitHub
-PyGithub>=2.3.0
-
-# Google APIs
+# ── Google APIs ───────────────────────────────────────────────────────────────
 google-auth>=2.29.0
 google-auth-oauthlib>=1.2.0
 google-api-python-client>=2.130.0
 gkeepapi>=0.15.0
 
-# Notion
+# ── GitHub ────────────────────────────────────────────────────────────────────
+PyGithub>=2.3.0
+
+# ── Notion ────────────────────────────────────────────────────────────────────
 notion-client>=2.2.2
 
-# Utilities
-python-dateutil>=2.9.0
+# ── Free Media & Enrichment ───────────────────────────────────────────────────
+# Grammar (no key needed)
+language-tool-python>=2.8.1
 
-# Free-tier AI providers
-cohere>=5.3.0
-mistralai>=0.4.0
-together>=1.2.0
+# Image generation / analysis
+Pillow>=10.3.0
+# Optional: opencv-python>=4.9.0 for local image analysis
+
+# Text-to-speech (no key needed)
+gTTS>=2.5.1
+edge-tts>=6.1.9
+pydub>=0.25.1
+
+# YouTube transcript (no key needed)
+youtube-transcript-api>=0.6.2
+
+# Web search (no key needed)
+duckduckgo-search>=5.3.1b1
+wikipedia-api>=0.6.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dateutil>=2.9.0
