@@ -1718,6 +1718,9 @@ def page_settings():
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Inline handlers for pages that live entirely in app.py
+def _render_agentrun():
+    from agentrun import render_agentrun
+    render_agentrun(AGENTS, PROVIDERS, call_llm, add_log, cmd_log, github_real)
 def _render_dashboard():       page_dashboard()
 def _render_agents():          page_agents()
 def _render_pipelines():       page_pipelines()
@@ -1736,6 +1739,7 @@ def _render_thought_history():
     render_thought_history()
 
 INLINE_HANDLERS = {
+    "page_agentrun":       _render_agentrun,
     "page_dashboard":      _render_dashboard,
     "page_agents":         _render_agents,
     "page_pipelines":      _render_pipelines,

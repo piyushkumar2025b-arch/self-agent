@@ -36,6 +36,15 @@ PAGE_REGISTRY: dict[str, dict] = {
         "section": "Core",
         "description": "Overview of agents, health, and system stats",
     },
+    "⚡  AgentRun": {
+        "module": None,
+        "fn": None,
+        "inline": "page_agentrun",
+        "icon": "⚡",
+        "label": "AgentRun",
+        "section": "Core",
+        "description": "Unified live runner — all features integrated",
+    },
     "🤖  Agents": {
         "module": None,
         "fn": None,
